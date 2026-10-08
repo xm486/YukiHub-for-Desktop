@@ -54,7 +54,8 @@ func JoinWindows(base string, child string) string {
 // Normalize returns a stable path key for duplicate checks.
 //
 // Windows 路径（盘符或 UNC）在任何宿主平台上都按 Windows 语义规范化：
-// 统一反斜杠、折叠重复分隔符并小写化（Windows 文件系统大小写不敏感）。
+// 统一反斜杠、折叠重复分隔符、解析 `.` / `..` 段，并小写化
+// （Windows 文件系统大小写不敏感）。
 // 其它路径按宿主语义清理；Linux 上保持大小写与原生分隔符，避免破坏大小写
 // 敏感的文件系统语义。
 func Normalize(path string) string {
@@ -64,7 +65,7 @@ func Normalize(path string) string {
 	}
 
 	if IsWindowsAbs(trimmed) {
-		return strings.ToLower(NormalizeWindowsSeparators(trimmed))
+		return strings.ToLower(cleanWindowsPath(trimmed))
 	}
 
 	cleaned := filepath.Clean(trimmed)
@@ -78,6 +79,62 @@ func Normalize(path string) string {
 		return strings.ToLower(cleaned)
 	}
 	return cleaned
+}
+
+// cleanWindowsPath 在任意宿主平台上按 Windows 语义清理绝对路径：统一分隔符、
+// 折叠重复分隔符，并解析 "." / ".." 段。UNC 的 `\\server\share` 根不受 ".." 影响。
+//
+// 为什么要单独写一份：改用与宿主无关的实现后，filepath.Clean 顺带承担的
+// "." / ".." 解析跟着丢了 —— 于是 `D:\Games\..\Other` 与 `D:\Other` 会被算成
+// 两个不同路径，重复检测直接漏判。这里把它补回来。
+func cleanWindowsPath(path string) string {
+	normalized := NormalizeWindowsSeparators(path)
+
+	prefix := ""
+	rest := normalized
+	switch {
+	case strings.HasPrefix(normalized, `\\`):
+		parts := strings.SplitN(strings.TrimLeft(normalized[2:], `\`), `\`, 3)
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			// `\\server` 这类半截 UNC 没有可解析的根，原样返回
+			return normalized
+		}
+		prefix = `\\` + parts[0] + `\` + parts[1]
+		if len(parts) == 3 {
+			rest = parts[2]
+		} else {
+			rest = ""
+		}
+	case len(normalized) >= 2 && isDriveLetter(normalized[0]) && normalized[1] == ':':
+		prefix = normalized[:2]
+		rest = strings.TrimPrefix(normalized[2:], `\`)
+	default:
+		return normalized
+	}
+
+	segments := make([]string, 0, 8)
+	for _, segment := range strings.Split(rest, `\`) {
+		switch segment {
+		case "", ".":
+			// 重复分隔符与当前目录段直接丢弃
+		case "..":
+			// Windows 语义：已经在根上时 ".." 无效果（`C:\..` == `C:\`）
+			if len(segments) > 0 {
+				segments = segments[:len(segments)-1]
+			}
+		default:
+			segments = append(segments, segment)
+		}
+	}
+
+	if len(segments) == 0 {
+		if strings.HasPrefix(prefix, `\\`) {
+			// UNC 根不以分隔符结尾（与 NormalizeWindowsSeparators 保持一致）
+			return prefix
+		}
+		return prefix + `\`
+	}
+	return prefix + `\` + strings.Join(segments, `\`)
 }
 
 // ContainsNormalized reports whether childPath is inside parentPath, using
