@@ -434,6 +434,7 @@
     "releaseDate": "發售日期",
     "summary": "簡介",
     "noSummary": "暫無簡介",
+    "media": "媒體",
     "noCover": "沒有封面",
     "imageViewer": {
       "open": "查看 {{name}} 的封面圖片",

@@ -1146,3 +1146,42 @@ service 包 4 条（来源优先级 / 空来源穿透 / 无数据返回空 / 坏
 - 从手机端同步过来的游戏、或本轮之后重新刮削过的游戏，画带即刻可见；
 - 本轮之前在本机刮削的游戏，其缓存里 `screenshotUrls` 是空的（旧代码没写），
   需要在详情页重新「更新元数据」一次才会出现截图。
+
+## 十九、2026-10-08 第十三轮：截图画带挪到「游戏库详情」（**推翻 §十八 的落点**）
+
+用户（开发本人）指出：**「大屏模式没有这个东西，就是放在游戏库详情页的。」**
+用户是对的 —— §十八 我把落点判错了，本轮纠正。
+
+### 19.1 §十八 错在哪（不是凭印象，是漏读了一个文件）
+
+| 手机端 | 我 §十八 的判断 | 实际 |
+| --- | --- | --- |
+| `activity_main.xml` 的 `detailPanel` → `sideScreenshot1/2` | 当成「屏幕翻译的原文/译文对比图」，与游戏库无关 | **就是游戏库详情面板的截图**：`<TextView text="媒体">` + `HorizontalScrollView`（高 42dp）内两个 64dp 宽 `centerCrop` 图 |
+| `activity_main.xml` 的数据流 | 没查 | `MetadataController.java:1144-1147`：`meta.screenshotUrls.get(0)` → `sideScreenshot1`、`.get(1)` → `sideScreenshot2` |
+
+屏幕翻译那对图是 `TranslateControlActivity` + `activity_translate_control.xml`，**另一个文件**。
+两个都叫 `Screenshot*`，我张冠李戴了。
+
+补充事实（存档，不改变本轮结论）：线上 `main` 分支的
+`BigScreenDetailsLayer.java:507/653`（`renderScreenshots`）**现在仍然存在** ——
+即手机端两个界面都有截图展示。但**桌面端的产品决定以用户的要求为准**：
+截图展示放游戏库详情，大屏详情层不放。
+
+### 19.2 本轮改动
+
+| 位置 | 改动 |
+| --- | --- |
+| `bigscreen/BigScreenDetailsLayer.tsx` | **撤掉** §十八 加的 INTRODUCTION 画带（−97 行），回到「封面 / 标题 / 副行 / 标签 chips / 统计块 / 简介 / 按钮排」 |
+| `components/panel/LibraryDetailPanel.tsx` | 元信息列表之后新增**「媒体」小节**（`t("game.media")`），2 个固定位、`aspect-[3/2]` 平分面板宽度 —— 对齐手机端 `detailPanel` 的「媒体」小节 |
+| `routes/game.tsx`（完整详情页 `/game/:id`） | 标签之后同样新增「媒体」小节，最多 4 张、`aspect-video w-64` |
+| `components/ui/GameScreenshots.tsx`（新增） | 抽取两处共用的取数与降级：NSFW 且开「模糊 NSFW 封面」时整块不渲染（连请求都不发，与封面同规则）；单张加载失败隐藏该张；一张都没有时标题与图片一起收起 |
+| i18n | 4 语言新增 `game.media`（媒体 / 媒體 / Media / メディア） |
+
+数据链路（`GetGameScreenshots` + VNDB/Hikarinagi/NextMoe 解析 + `screenshotUrls` 落元数据缓存）
+**一行未改** —— 只是消费端从大屏换成游戏库。这正是 §十八 里最有价值的那部分工作。
+
+### 19.3 验收
+
+`tsc` / `eslint`（0 error）/ `i18n:check` / `uno:check` / `vite build` / `wails3 task build` +
+exe 冒烟无 FATAL；另外用「产物 CSS + 手搓 DOM + 无头 Edge」出图确认：
+面板 2 张平分一行、只有 1 张时占满一行、详情页 `w-64` 正常换行。

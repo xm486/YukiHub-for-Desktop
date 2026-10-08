@@ -146,13 +146,13 @@ export function GetGameMetadataSources(gameID: string): $CancellablePromise<mode
 }
 
 /**
- * GetGameScreenshots 返回大屏详情层 INTRODUCTION 画带要用的截图地址。
+ * GetGameScreenshots 返回游戏库详情（右侧详情面板 / 完整详情页）「媒体」小节要用的截图地址。
  * 
  * 合并规则逐字对齐手机端 BigScreenMeta：按来源优先级取**第一个非空来源**的整组截图
  * （不跨来源拼接），上限 8 张 —— 各来源解析时已各自截到 2 张（见 metadata 包）。
  * 数据直接读 game_metadata_sources.cache_json（沿用手机版 VnMetadata 结构，含
  * screenshotUrls），所以两端看到的是同一组图。没有任何来源带截图时返回空切片，
- * 前端把整块画带收起来。
+ * 前端把整块截图区收起来。
  */
 export function GetGameScreenshots(gameID: string): $CancellablePromise<string[]> {
     return $Call.ByID(2334470654, gameID).then(($result: any) => {

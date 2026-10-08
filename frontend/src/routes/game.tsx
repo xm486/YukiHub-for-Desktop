@@ -70,6 +70,7 @@ import { BetterImageViewer } from "../components/ui/better/BetterImageViewer";
 import { BetterSplitButton } from "../components/ui/better/BetterSplitButton";
 import { BetterTooltip } from "../components/ui/better/BetterTooltip";
 import { GameCoverImage } from "../components/ui/GameCoverImage";
+import { GameScreenshots } from "../components/ui/GameScreenshots";
 import { GameTags } from "../components/ui/GameTags";
 import { sourceLabel } from "../components/ui/import/importFlow";
 import { GAME_STATUS_BADGE_STYLES } from "../consts/gameStatusBadge";
@@ -1701,6 +1702,16 @@ function GameDetailPage() {
               refreshToken={tagRefreshToken}
             />
           </div>
+
+          {/* 媒体：截图（与游戏库详情面板同一组图，这里是完整详情页，给大一些） */}
+          <GameScreenshots
+            gameId={gameId}
+            isNSFW={game.is_nsfw}
+            limit={4}
+            label={t("game.media")}
+            rowClassName="mt-2 flex flex-wrap gap-2"
+            itemClassName="aspect-video w-64 max-w-full shrink-0 overflow-hidden rounded-xl bg-brand-200 dark:bg-brand-900/60"
+          />
         </div>
       </div>
 

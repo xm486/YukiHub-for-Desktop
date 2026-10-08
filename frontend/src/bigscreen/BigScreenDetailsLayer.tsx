@@ -2,11 +2,9 @@ import type { models } from "../../src/bindings/models";
 import type { BigScreenHintMode } from "./BigScreenHintBar";
 import type { BigScreenKeyStyle } from "./keyStyles";
 import type { BigScreenInputDevice } from "./useGamepad";
-import { memo, useEffect, useState } from "react";
+import { memo } from "react";
 
 import { useTranslation } from "react-i18next";
-import { GetGameScreenshots } from "../../bindings/yukihub/internal/service/gameservice";
-import { ProxyImage } from "../components/ui/ProxyImage";
 import { statusOptions } from "../consts/options";
 import { useGamePlaytime } from "../hooks/useGamePlaytime";
 import { useAppStore } from "../store";
@@ -46,15 +44,11 @@ interface BigScreenDetailsLayerProps {
 
 /**
  * 大屏详情层，对齐手机端 `BigScreenDetailsLayer`：
- * 封面 / 标题 / 副行（原文名·开发商·发行日期）/ 标签 chips（≤3）/ 统计块 / 简介 /
- * INTRODUCTION 截图画带 / 操作按钮排。
+ * 封面 / 标题 / 副行（原文名·开发商·发行日期）/ 标签 chips（≤3）/ 统计块 / 简介 / 操作按钮排。
  *
  * 操作按钮排由调用方给出，对齐手机端的「游玩 / 观看 PV（有才显示）/ 详细」——
  * 其中「详细」打开的是**大屏内的游戏操作菜单**，不是跳去游戏详情页（手机端
  * `onRequestGameMenu`），所以详情层本身不知道菜单长什么样。
- *
- * 截图画带的数据来自元数据缓存（`GetGameScreenshots`，按手机端 BigScreenMeta 的
- * 来源优先级取第一组非空截图），与手机端看到的是同一组图。
  */
 export const BigScreenDetailsLayer = memo(
   ({
@@ -196,9 +190,6 @@ export const BigScreenDetailsLayer = memo(
               </div>
             )}
 
-            {/* INTRODUCTION 截图画带：在简介与按钮排之间（手机端同序） */}
-            <DetailsScreenshots gameID={game.id} isNSFW={game.is_nsfw} />
-
             <div className="mt-8 flex shrink-0 flex-wrap items-center gap-3">
               {actions.map((action, index) => {
                 const isFocused
@@ -248,91 +239,3 @@ export const BigScreenDetailsLayer = memo(
     );
   },
 );
-
-/**
- * INTRODUCTION 截图画带，对齐手机端 `renderScreenshots`：
- * - 最多 4 张（手机端 `Math.min(urls.size(), 4)`）；尺寸按既有约定比手机端小一档
- *   （手机 196×110dp → 这里 160×90）
- * - NSFW 且开启「模糊 NSFW 封面」时**整块不渲染**（截图内容无从模糊，直接不给看）
- * - 没有截图时整块隐藏，不留空标题
- * - 单张加载失败隐藏该张（不留破图）；一张都没出来时整块收起
- * - 标题是字面量 INTRODUCTION —— 手机端同样是硬编码标签，不随语言变
- */
-function DetailsScreenshots({
-  gameID,
-  isNSFW,
-}: {
-  gameID: string;
-  isNSFW: boolean;
-}) {
-  const shouldBlurNSFW = useAppStore(
-    state => state.config?.blur_nsfw_game_covers !== false,
-  );
-  const hidden = isNSFW && shouldBlurNSFW;
-  const [urls, setUrls] = useState<string[]>([]);
-  const [failed, setFailed] = useState<string[]>([]);
-
-  useEffect(() => {
-    // 整块不渲染时连请求都不发
-    if (hidden) {
-      return;
-    }
-    let cancelled = false;
-    void GetGameScreenshots(gameID)
-      .then((list) => {
-        if (cancelled) {
-          return;
-        }
-        setUrls(
-          Array.isArray(list)
-            ? list.filter(url => url.trim().length > 0)
-            : [],
-        );
-      })
-      .catch((error) => {
-        // 画带是锦上添花：读不到就整块不显示，不打扰用户
-        console.error("Failed to load big screen screenshots:", error);
-        if (!cancelled) {
-          setUrls([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [gameID, hidden]);
-
-  if (hidden) {
-    return null;
-  }
-
-  const visible = urls.filter(url => !failed.includes(url)).slice(0, 4);
-  if (visible.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="mt-3 shrink-0">
-      <div className="text-[11px] font-medium tracking-[0.16em] text-brand-500">
-        INTRODUCTION
-      </div>
-      <div className="mt-1.5 flex gap-2">
-        {visible.map(url => (
-          <div
-            key={url}
-            className="h-[90px] w-[160px] shrink-0 overflow-hidden rounded-lg bg-brand-800"
-          >
-            <ProxyImage
-              src={url}
-              className="h-full w-full object-cover"
-              decoding="async"
-              onError={() =>
-                setFailed(current =>
-                  current.includes(url) ? current : [...current, url],
-                )}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}

@@ -434,6 +434,7 @@
     "releaseDate": "発売日",
     "summary": "概要",
     "noSummary": "概要はありません",
+    "media": "メディア",
     "noCover": "カバーなし",
     "imageViewer": {
       "open": "{{name}} のカバー画像を表示",

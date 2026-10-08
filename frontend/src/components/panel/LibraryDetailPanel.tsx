@@ -12,6 +12,7 @@ import { getMetadataSourceIcon } from "../../utils/metadataSources";
 import { formatDuration, formatLocalDate } from "../../utils/time";
 import { BetterDropdownMenu } from "../ui/better/BetterDropdownMenu";
 import { GameCoverImage } from "../ui/GameCoverImage";
+import { GameScreenshots } from "../ui/GameScreenshots";
 import { sourceLabel } from "../ui/import/importFlow";
 
 interface LibraryDetailPanelProps {
@@ -330,6 +331,14 @@ export function LibraryDetailPanel({
           </div>
         ))}
       </dl>
+
+      {/* 媒体：截图（对齐手机端 detailPanel 的「媒体」小节，2 个固定位） */}
+      <GameScreenshots
+        gameId={game.id}
+        isNSFW={game.is_nsfw}
+        limit={2}
+        label={t("game.media")}
+      />
     </section>
   );
 }
