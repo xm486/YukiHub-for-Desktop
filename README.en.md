@@ -1,6 +1,6 @@
 # YukiHub Desktop
 
-The desktop edition of YukiHub for Windows and Linux — a Galgame / visual novel
+The desktop edition of YukiHub, for Windows and Linux — a Galgame / visual novel
 library manager, launcher and playtime tracker.
 
 > **Status: usable, not yet released.** The code builds and runs day to day, while the

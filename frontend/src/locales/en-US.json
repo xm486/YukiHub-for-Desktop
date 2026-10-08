@@ -1020,14 +1020,13 @@
       "dataManagement": "Data & backup"
     },
     "about": {
-      "appName": "YukiHub for Windows",
       "tagline": "Galgame library manager and launcher",
       "version": "Version",
       "commit": "Commit",
       "buildMode": "Build mode",
       "buildTime": "Build time",
       "licenseTitle": "Open source license",
-      "licenseBody": "YukiHub for Windows is a modified version. It is licensed as a whole under the GNU Affero General Public License v3.0: you may use, modify and distribute it freely, provided that the complete corresponding source code is made available and the original copyright notices and license text are kept.",
+      "licenseBody": "This program is a modified version. It is licensed as a whole under the GNU Affero General Public License v3.0: you may use, modify and distribute it freely, provided that the complete corresponding source code is made available and the original copyright notices and license text are kept.",
       "upstreamTitle": "Upstream project",
       "upstreamBody": "This program is based on {{name}} {{version}}. Upstream copyright belongs to the LunaBox contributors.",
       "upstreamNotice": "This is a modified version, different from the original. It is not an official upstream release, and upstream provides no warranty or support.",

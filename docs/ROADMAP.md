@@ -1,4 +1,4 @@
-# YukiHub for Windows 路线图
+# YukiHub Desktop 路线图
 
 阶段划分以"可验收的结果"为单位，不给日期承诺。上一个阶段未通过验收，不进入下一个阶段。
 
@@ -1470,9 +1470,16 @@ Android 版的 Three.js 离线展厅（`assets/exhibition/`，约 7200 行纯 We
 - [x] CI：`autobuild.yml` / `release.yml` 新增 Linux amd64 作业，
       `internal.yml` 新增 Linux 检查作业
 - [x] 前端：恢复 Wine/Proton 启动面板与设置项、平台分支与四语言文案
+- [x] `wails3 generate bindings -clean=true -ts` 在 Windows 构建机重跑并提交
+      （此前提交的生成物与生成器输出有偏差：`index.ts` 少导出 4 个新类型、
+      `$$createTypeN` 别名编号不同 —— 现在重跑一次应为零差异，可当"生成物是否被手改"
+      的探测器用）
+- [x] Windows 侧全量核验（2026-10-08）：`go build ./...`、`gofmt -l .`、`go vet ./...`、
+      `go test ./... -count=1 -p 1` 全绿；updater 独立模块 build + test 全绿；
+      前端 `tsc` / `i18n:check` / `uno:check` 通过，ESLint 与合并前同量
 - [ ] 待办：在装有 Linux 构建依赖的机器/CI 上完成端到端核验
-      （CGO + DuckDB 的完整 `go build`、`wails3 generate bindings` 重跑、
-      真机启动 / 计时 / 托盘 / 协议唤醒 / deb·rpm·AppImage 安装）
+      （CGO + DuckDB 的完整 `go build`、真机启动 / 计时 / 托盘 / 协议唤醒 /
+      deb·rpm·AppImage 安装）
 
 本机验证记录（无 GTK / CGO 工具链的开发机，2026-10-06）：
 

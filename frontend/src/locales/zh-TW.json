@@ -1020,14 +1020,13 @@
       "dataManagement": "資料與備份"
     },
     "about": {
-      "appName": "YukiHub for Windows",
       "tagline": "Galgame 庫管理與啟動工具",
       "version": "版本",
       "commit": "提交",
       "buildMode": "建置模式",
       "buildTime": "建置時間",
       "licenseTitle": "開源許可",
-      "licenseBody": "本程式為 YukiHub for Windows，是修改版本。整體依 GNU Affero General Public License v3.0 授權：可以自由使用、修改與散布，但散布時須一併提供完整的對應原始碼，並保留原始著作權聲明與許可證全文。",
+      "licenseBody": "本程式是修改版本。整體依 GNU Affero General Public License v3.0 授權：可以自由使用、修改與散布，但散布時須一併提供完整的對應原始碼，並保留原始著作權聲明與許可證全文。",
       "upstreamTitle": "上游專案",
       "upstreamBody": "本程式基於 {{name}} {{version}} 開發，上游著作權歸 LunaBox contributors 所有。",
       "upstreamNotice": "這是與原始版本不同的修改版本，並非上游官方發行版，上游不提供任何擔保或支援。",

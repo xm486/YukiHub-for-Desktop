@@ -314,9 +314,13 @@ function SettingsPage() {
       </div>
 
       <div className="pt-4 text-center text-brand-500 dark:text-brand-400 pb-8 flex flex-col items-center justify-center">
+        {/* 产品名取自后端 GetVersionInfo.appName（internal/version 是唯一来源）；
+            兜底用产品家族名 YukiHub，避免在前端再写一份显示名。 */}
         <p className="text-xs">
-          YukiHub for Windows — a modified fork of LunaBox by Saramanda9988
-          &amp; contributors.
+          {versionInfo?.appName ?? "YukiHub"}
+          {" "}
+          — a modified fork of LunaBox by
+          Saramanda9988 &amp; contributors.
         </p>
         {versionInfo && (
           <p className="mt-1 text-xs opacity-80">

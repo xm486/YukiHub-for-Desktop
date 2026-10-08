@@ -15,8 +15,8 @@ macOS / iOS 的平台实现已移除。Linux（amd64）支持已于 2026-10-06 �
 
 ## 项目身份（影响每一次改动）
 
-本仓库是 **YukiHub for Windows**（同时支持 Windows 与 Linux amd64 桌面端），
-LunaBox v1.13.0 的硬分叉。
+本仓库是 **YukiHub Desktop**（仓库名仍为 `YukiHub-for-Windows`，支持 Windows 10/11
+与 Linux amd64），LunaBox v1.13.0 的硬分叉。
 
 - 整体按 **AGPL-3.0** 授权（GPL-3.0 的 Android 版与本项目为同一产品家族，但本项目不能闭源）。
 - 与上游定位为"硬分叉、不回灌"，不要试图与上游保持同步。

@@ -14,7 +14,10 @@ import { BetterButton } from "../ui/better/BetterButton";
  */
 export function AboutPanel() {
   const { t } = useTranslation();
-  const [versionInfo, setVersionInfo] = useState<Record<string, string | undefined> | null>(null);
+  const [versionInfo, setVersionInfo] = useState<Record<
+    string,
+    string | undefined
+  > | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +40,7 @@ export function AboutPanel() {
     };
   }, []);
 
+  const appName = versionInfo?.appName ?? "";
   const repoURL = versionInfo?.repo ?? "";
   const upstreamURL = versionInfo?.upRepo ?? "";
   const upstreamName = versionInfo?.upstream ?? "";
@@ -45,9 +49,13 @@ export function AboutPanel() {
   return (
     <div className="space-y-5">
       <div className="space-y-1">
-        <p className="text-sm font-medium text-brand-700 dark:text-brand-300">
-          {t("settings.about.appName")}
-        </p>
+        {/* 产品名只从后端 version.AppDisplayName 取，语言文件里不再留第二份
+            （改名时只改 internal/version 一处，四语言文案不会各自漂移）。 */}
+        {appName !== "" && (
+          <p className="text-sm font-medium text-brand-700 dark:text-brand-300">
+            {appName}
+          </p>
+        )}
         <p className="text-xs text-brand-500 dark:text-brand-400">
           {t("settings.about.tagline")}
         </p>
@@ -55,10 +63,22 @@ export function AboutPanel() {
 
       {versionInfo && (
         <div className="space-y-2">
-          <InfoRow label={t("settings.about.version")} value={versionInfo.version ?? "-"} />
-          <InfoRow label={t("settings.about.commit")} value={versionInfo.commit ?? "-"} />
-          <InfoRow label={t("settings.about.buildMode")} value={versionInfo.buildMode ?? "-"} />
-          <InfoRow label={t("settings.about.buildTime")} value={versionInfo.buildTime ?? "-"} />
+          <InfoRow
+            label={t("settings.about.version")}
+            value={versionInfo.version ?? "-"}
+          />
+          <InfoRow
+            label={t("settings.about.commit")}
+            value={versionInfo.commit ?? "-"}
+          />
+          <InfoRow
+            label={t("settings.about.buildMode")}
+            value={versionInfo.buildMode ?? "-"}
+          />
+          <InfoRow
+            label={t("settings.about.buildTime")}
+            value={versionInfo.buildTime ?? "-"}
+          />
         </div>
       )}
 
@@ -76,7 +96,10 @@ export function AboutPanel() {
           {t("settings.about.upstreamTitle")}
         </p>
         <p className="text-xs leading-relaxed text-brand-500 dark:text-brand-400">
-          {t("settings.about.upstreamBody", { name: upstreamName || "-", version: upstreamVersion || "-" })}
+          {t("settings.about.upstreamBody", {
+            name: upstreamName || "-",
+            version: upstreamVersion || "-",
+          })}
         </p>
         <p className="text-xs leading-relaxed text-brand-500 dark:text-brand-400">
           {t("settings.about.upstreamNotice")}
@@ -121,7 +144,9 @@ export function AboutPanel() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4">
-      <span className="shrink-0 text-xs text-brand-500 dark:text-brand-400">{label}</span>
+      <span className="shrink-0 text-xs text-brand-500 dark:text-brand-400">
+        {label}
+      </span>
       <span className="text-right text-xs font-medium break-all text-brand-700 dark:text-brand-300">
         {value}
       </span>

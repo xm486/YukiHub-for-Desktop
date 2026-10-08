@@ -1020,14 +1020,13 @@
       "dataManagement": "データとバックアップ"
     },
     "about": {
-      "appName": "YukiHub for Windows",
       "tagline": "ギャルゲー管理・起動ツール",
       "version": "バージョン",
       "commit": "コミット",
       "buildMode": "ビルドモード",
       "buildTime": "ビルド日時",
       "licenseTitle": "オープンソースライセンス",
-      "licenseBody": "本ソフトウェアは YukiHub for Windows であり、改変版です。全体が GNU Affero General Public License v3.0 でライセンスされています。自由に使用・改変・配布できますが、配布時は完全な対応ソースコードを提供し、元の著作権表示とライセンス文を保持する必要があります。",
+      "licenseBody": "本ソフトウェアは改変版です。全体が GNU Affero General Public License v3.0 でライセンスされています。自由に使用・改変・配布できますが、配布時は完全な対応ソースコードを提供し、元の著作権表示とライセンス文を保持する必要があります。",
       "upstreamTitle": "上流プロジェクト",
       "upstreamBody": "本ソフトウェアは {{name}} {{version}} を基に開発されました。上流の著作権は LunaBox contributors に帰属します。",
       "upstreamNotice": "これは原本とは異なる改変版であり、上流の公式リリースではありません。上流は保証もサポートも提供しません。",

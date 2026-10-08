@@ -2,9 +2,10 @@
 
 This directory contains the platform metadata, packaging templates, and generated release artifacts used by the Wails v3 build scripts.
 
-YukiHub for Windows is a Windows-only product, so only the Windows assets are kept:
+YukiHub Desktop ships on Windows and Linux amd64, so both platform asset sets are kept:
 
 - `windows/` contains the Windows manifest, version metadata, icon, and NSIS templates.
+- `linux/` contains the nfpm (deb/rpm) templates and packaging scripts.
 - `bin/` is the ignored output directory for release artifacts.
 
 Refresh the standard platform assets from `build/` with:

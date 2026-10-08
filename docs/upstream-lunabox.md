@@ -23,7 +23,7 @@ Authenticode 校验等）源自该上游项目。
 
 ## 本项目的定位
 
-YukiHub for Windows 是 YukiHub 项目的 Windows 桌面版本。
+YukiHub Desktop 是 YukiHub 项目的桌面版本（Windows / Linux amd64）。
 它与 Android 版 YukiHub（https://github.com/xm486/YukiHub ，GPL-3.0）属于同一产品家族，
 但桌面版并非 Android 版的移植，而是以上游 LunaBox 为基线重新构建产品层。
 
@@ -84,12 +84,36 @@ YukiHub for Windows 是 YukiHub 项目的 Windows 桌面版本。
 - 新增回归测试 `internal/service/launcher/exit_watch_linux_test.go` 与
   `processutils.LinuxProcessTracker` 根进程身份断言。
 
+### 2026-10-08 — 产品显示名统一、发布链路解耦与若干修复
+
+- 产品显示名定为 **YukiHub Desktop**（Windows / Linux 桌面端）。
+  `internal/version.AppDisplayName` 仍是唯一来源，并按 `AGENTS.md` 的约定收口了散落的
+  硬编码：移除四语言文件里的 `settings.about.appName`（关于面板直接显示后端返回的
+  `appName`），许可证正文与设置页页脚也不再各自复述产品名。
+  **仓库名 `YukiHub-for-Windows` 与 git 远端地址保持不变**（改显示名不动链接）。
+- `autobuild.yml` / `release.yml` 的发布作业不再 `needs: build-linux`：Linux 打包失败
+  不再阻断 Windows 的预发布与正式发布。产物校验由「必须 7 个」改为「Windows 四件套
+  必须齐全，Linux 三件套为可选增量（0 个或 3 个）」。
+- 修复 `useAppRuntimeEffects.ts` 中重复的进出场动画：`animate-enter` / `animate-leave`
+  在主题里并不存在（会被 UnoCSS 静默丢弃，并被 `uno:check` 拦下），而 `AppToaster`
+  的堆叠容器已经统一负责 toast 的进场与离场动画。
+- 修复前端平台门控的 fail-closed：`store.platformGOOS` 初值不再为空串。此前初值为空时
+  写正判的 Windows 专属入口（应用内更新、管理员启动、导出快捷启动方式、
+  Locale Emulator / Magpie、批量导入 Steam）会在 `GetGOOS` 返回前被隐藏，
+  调用失败时更会永久隐藏。
+- 修复 `importpath.Normalize` 丢失的 `.` / `..` 解析：跨平台的 Windows 路径实现不再走
+  `filepath.Clean` 之后，`D:\Games\..\Other` 与 `D:\Other` 会被算成两个路径，
+  重复检测漏判；已补回并加回归测试。
+- 重新生成 `frontend/bindings` 并提交，使其与生成器输出严格一致
+  （重跑 `wails3 generate bindings -clean=true -ts` 应为零差异）。
+
 ### 尚未修改、计划修改
 
 - 产品界面与交互仍为上游形态，尚未替换为 YukiHub 的视觉与信息架构。
 - 游戏领域模型仍为上游语义，尚未合并 Android 版的视觉小说条目语义
   （三语标题、NSFW、`play_status` 五态等）。
-- macOS / iOS / Linux 平台代码与 CI 矩阵尚未移除（本项目仅面向 Windows）。
+- macOS / iOS 不在支持范围内（不恢复其平台代码与 CI 矩阵）；
+  Linux（amd64）已于 2026-10-06 恢复，见 `docs/decisions/0004-restore-linux-support.md`。
 - 应用图标、启动图、界面内品牌插画仍为上游占位资源，需要替换为 YukiHub 素材。
 - 应用内尚无独立的"开源许可"展示界面。
 

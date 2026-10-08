@@ -1,8 +1,8 @@
 # 第三方组件与许可证
 
-本文件列出 YukiHub for Windows 分发或链接的第三方组件及其许可证。
+本文件列出 YukiHub Desktop 分发或链接的第三方组件及其许可证。
 
-> 说明：上游 LunaBox 仓库中没有任何第三方许可证清单。本文件是 YukiHub for Windows
+> 说明：上游 LunaBox 仓库中没有任何第三方许可证清单。本文件是 YukiHub Desktop
 > 新增的合规材料，用于满足随二进制分发第三方组件时的署名与许可证义务。
 > 如果你发现遗漏或有误，请提交 Issue 或 PR。
 

@@ -1,6 +1,6 @@
 # 更新日志
 
-本文件记录 YukiHub for Windows 自身的变更。
+本文件记录 YukiHub Desktop 自身的变更。
 上游 LunaBox 的历史变更日志完整保留在 [CHANGELOG.upstream.md](CHANGELOG.upstream.md)（未作修改）。
 
 版本号规则：`主版本.次版本.修订号`，与 git tag（`v*.*.*`）一致。

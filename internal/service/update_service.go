@@ -53,7 +53,7 @@ type UpdateService struct {
 
 // 默认更新检查 URL 列表（按优先级排序）。
 //
-// YukiHub for Windows 不复用上游 LunaBox 的更新服务，因此这里默认为空：
+// YukiHub Desktop 不复用上游 LunaBox 的更新服务，因此这里默认为空：
 // 更新地址来自构建期注入的 version.UpdateServiceURL，或用户在设置中填写的自定义地址。
 // 在自建更新服务上线前，未配置地址时更新检查会直接跳过，不会请求任何第三方域名。
 var defaultUpdateURLs = []string{}
