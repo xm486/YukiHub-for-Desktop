@@ -223,6 +223,90 @@ export class FriendPlayEvent {
     }
 }
 
+/**
+ * GameCompatibilityToolsInfo 描述某个游戏可用的 Wine/Proton 快捷工具。
+ */
+export class GameCompatibilityToolsInfo {
+    "supported": boolean;
+    "runner_kind": string;
+    "prefix_path": string;
+    "drive_c_path": string;
+    "app_id": string;
+    "winetricks_path": string;
+    "winetricks_source": string;
+    "winetricks_available": boolean;
+    "winetricks_error": string;
+    "protontricks_path": string;
+    "protontricks_source": string;
+    "protontricks_available": boolean;
+    "protontricks_error": string;
+    "actions": string[];
+    "message": string;
+
+    /** Creates a new GameCompatibilityToolsInfo instance. */
+    constructor($$source: Partial<GameCompatibilityToolsInfo> = {}) {
+        if (!("supported" in $$source)) {
+            this["supported"] = false;
+        }
+        if (!("runner_kind" in $$source)) {
+            this["runner_kind"] = "";
+        }
+        if (!("prefix_path" in $$source)) {
+            this["prefix_path"] = "";
+        }
+        if (!("drive_c_path" in $$source)) {
+            this["drive_c_path"] = "";
+        }
+        if (!("app_id" in $$source)) {
+            this["app_id"] = "";
+        }
+        if (!("winetricks_path" in $$source)) {
+            this["winetricks_path"] = "";
+        }
+        if (!("winetricks_source" in $$source)) {
+            this["winetricks_source"] = "";
+        }
+        if (!("winetricks_available" in $$source)) {
+            this["winetricks_available"] = false;
+        }
+        if (!("winetricks_error" in $$source)) {
+            this["winetricks_error"] = "";
+        }
+        if (!("protontricks_path" in $$source)) {
+            this["protontricks_path"] = "";
+        }
+        if (!("protontricks_source" in $$source)) {
+            this["protontricks_source"] = "";
+        }
+        if (!("protontricks_available" in $$source)) {
+            this["protontricks_available"] = false;
+        }
+        if (!("protontricks_error" in $$source)) {
+            this["protontricks_error"] = "";
+        }
+        if (!("actions" in $$source)) {
+            this["actions"] = [];
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new GameCompatibilityToolsInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): GameCompatibilityToolsInfo {
+        const $$createField13_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("actions" in $$parsedSource) {
+            $$parsedSource["actions"] = $$createField13_0($$parsedSource["actions"]);
+        }
+        return new GameCompatibilityToolsInfo($$parsedSource as Partial<GameCompatibilityToolsInfo>);
+    }
+}
+
 export class GameIDEnrichmentPreview {
     "scanned_games": number;
     "enrichable_games": number;
@@ -629,6 +713,51 @@ export class LibraryDirectorySelection {
     }
 }
 
+export class LocalProtonTool {
+    "id": string;
+    "name": string;
+    "display_name": string;
+    "path": string;
+    "proton_path": string;
+    "source": string;
+    "built_in": boolean;
+
+    /** Creates a new LocalProtonTool instance. */
+    constructor($$source: Partial<LocalProtonTool> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("display_name" in $$source)) {
+            this["display_name"] = "";
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("proton_path" in $$source)) {
+            this["proton_path"] = "";
+        }
+        if (!("source" in $$source)) {
+            this["source"] = "";
+        }
+        if (!("built_in" in $$source)) {
+            this["built_in"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LocalProtonTool instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LocalProtonTool {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LocalProtonTool($$parsedSource as Partial<LocalProtonTool>);
+    }
+}
+
 /**
  * PortableProtocolStatus describes the current yukihub:// scheme binding.
  */
@@ -873,6 +1002,92 @@ export class SteamBatchImportResult {
     }
 }
 
+export class SteamCompatibilityInfo {
+    "supported": boolean;
+    "steam_installed": boolean;
+    "steam_root": string;
+    "app_id": string;
+    "proton_prefix": string;
+    "current_tool": string;
+    "default_tool": string;
+    "tools": SteamCompatibilityTool[];
+
+    /** Creates a new SteamCompatibilityInfo instance. */
+    constructor($$source: Partial<SteamCompatibilityInfo> = {}) {
+        if (!("supported" in $$source)) {
+            this["supported"] = false;
+        }
+        if (!("steam_installed" in $$source)) {
+            this["steam_installed"] = false;
+        }
+        if (!("steam_root" in $$source)) {
+            this["steam_root"] = "";
+        }
+        if (!("app_id" in $$source)) {
+            this["app_id"] = "";
+        }
+        if (!("proton_prefix" in $$source)) {
+            this["proton_prefix"] = "";
+        }
+        if (!("current_tool" in $$source)) {
+            this["current_tool"] = "";
+        }
+        if (!("default_tool" in $$source)) {
+            this["default_tool"] = "";
+        }
+        if (!("tools" in $$source)) {
+            this["tools"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SteamCompatibilityInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SteamCompatibilityInfo {
+        const $$createField7_0 = $$createType14;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("tools" in $$parsedSource) {
+            $$parsedSource["tools"] = $$createField7_0($$parsedSource["tools"]);
+        }
+        return new SteamCompatibilityInfo($$parsedSource as Partial<SteamCompatibilityInfo>);
+    }
+}
+
+export class SteamCompatibilityTool {
+    "name": string;
+    "display_name": string;
+    "path": string;
+    "built_in": boolean;
+
+    /** Creates a new SteamCompatibilityTool instance. */
+    constructor($$source: Partial<SteamCompatibilityTool> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("display_name" in $$source)) {
+            this["display_name"] = "";
+        }
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("built_in" in $$source)) {
+            this["built_in"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SteamCompatibilityTool instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SteamCompatibilityTool {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SteamCompatibilityTool($$parsedSource as Partial<SteamCompatibilityTool>);
+    }
+}
+
 export class SteamImportResult {
     "status": SteamLaunchStatus;
     "imported": boolean;
@@ -1055,7 +1270,7 @@ export class UpdateCheckResult {
      */
     static createFrom($$source: any = {}): UpdateCheckResult {
         const $$createField4_0 = $$createType2;
-        const $$createField5_0 = $$createType13;
+        const $$createField5_0 = $$createType15;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("changelog" in $$parsedSource) {
             $$parsedSource["changelog"] = $$createField4_0($$parsedSource["changelog"]);
@@ -1064,219 +1279,6 @@ export class UpdateCheckResult {
             $$parsedSource["downloads"] = $$createField5_0($$parsedSource["downloads"]);
         }
         return new UpdateCheckResult($$parsedSource as Partial<UpdateCheckResult>);
-    }
-}
-
-
-export class GameCompatibilityToolsInfo {
-    "supported": boolean;
-    "runner_kind": string;
-    "prefix_path": string;
-    "drive_c_path": string;
-    "app_id": string;
-    "winetricks_path": string;
-    "winetricks_source": string;
-    "winetricks_available": boolean;
-    "winetricks_error": string;
-    "protontricks_path": string;
-    "protontricks_source": string;
-    "protontricks_available": boolean;
-    "protontricks_error": string;
-    "actions": string[];
-    "message": string;
-
-    /** Creates a new GameCompatibilityToolsInfo instance. */
-    constructor($$source: Partial<GameCompatibilityToolsInfo> = {}) {
-        if (!("supported" in $$source)) {
-            this["supported"] = false;
-        }
-        if (!("runner_kind" in $$source)) {
-            this["runner_kind"] = "";
-        }
-        if (!("prefix_path" in $$source)) {
-            this["prefix_path"] = "";
-        }
-        if (!("drive_c_path" in $$source)) {
-            this["drive_c_path"] = "";
-        }
-        if (!("app_id" in $$source)) {
-            this["app_id"] = "";
-        }
-        if (!("winetricks_path" in $$source)) {
-            this["winetricks_path"] = "";
-        }
-        if (!("winetricks_source" in $$source)) {
-            this["winetricks_source"] = "";
-        }
-        if (!("winetricks_available" in $$source)) {
-            this["winetricks_available"] = false;
-        }
-        if (!("winetricks_error" in $$source)) {
-            this["winetricks_error"] = "";
-        }
-        if (!("protontricks_path" in $$source)) {
-            this["protontricks_path"] = "";
-        }
-        if (!("protontricks_source" in $$source)) {
-            this["protontricks_source"] = "";
-        }
-        if (!("protontricks_available" in $$source)) {
-            this["protontricks_available"] = false;
-        }
-        if (!("protontricks_error" in $$source)) {
-            this["protontricks_error"] = "";
-        }
-        if (!("actions" in $$source)) {
-            this["actions"] = [];
-        }
-        if (!("message" in $$source)) {
-            this["message"] = "";
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new GameCompatibilityToolsInfo instance from a string or object.
-     */
-    static createFrom($$source: any = {}): GameCompatibilityToolsInfo {
-        const $$createField13_0 = $$createType14;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("actions" in $$parsedSource) {
-            $$parsedSource["actions"] = $$createField13_0($$parsedSource["actions"]);
-        }
-        return new GameCompatibilityToolsInfo($$parsedSource as Partial<GameCompatibilityToolsInfo>);
-    }
-}
-
-export class LocalProtonTool {
-    "id": string;
-    "name": string;
-    "display_name": string;
-    "path": string;
-    "proton_path": string;
-    "source": string;
-    "built_in": boolean;
-
-    /** Creates a new LocalProtonTool instance. */
-    constructor($$source: Partial<LocalProtonTool> = {}) {
-        if (!("id" in $$source)) {
-            this["id"] = "";
-        }
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("display_name" in $$source)) {
-            this["display_name"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("proton_path" in $$source)) {
-            this["proton_path"] = "";
-        }
-        if (!("source" in $$source)) {
-            this["source"] = "";
-        }
-        if (!("built_in" in $$source)) {
-            this["built_in"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new LocalProtonTool instance from a string or object.
-     */
-    static createFrom($$source: any = {}): LocalProtonTool {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new LocalProtonTool($$parsedSource as Partial<LocalProtonTool>);
-    }
-}
-
-export class SteamCompatibilityInfo {
-    "supported": boolean;
-    "steam_installed": boolean;
-    "steam_root": string;
-    "app_id": string;
-    "proton_prefix": string;
-    "current_tool": string;
-    "default_tool": string;
-    "tools": SteamCompatibilityTool[];
-
-    /** Creates a new SteamCompatibilityInfo instance. */
-    constructor($$source: Partial<SteamCompatibilityInfo> = {}) {
-        if (!("supported" in $$source)) {
-            this["supported"] = false;
-        }
-        if (!("steam_installed" in $$source)) {
-            this["steam_installed"] = false;
-        }
-        if (!("steam_root" in $$source)) {
-            this["steam_root"] = "";
-        }
-        if (!("app_id" in $$source)) {
-            this["app_id"] = "";
-        }
-        if (!("proton_prefix" in $$source)) {
-            this["proton_prefix"] = "";
-        }
-        if (!("current_tool" in $$source)) {
-            this["current_tool"] = "";
-        }
-        if (!("default_tool" in $$source)) {
-            this["default_tool"] = "";
-        }
-        if (!("tools" in $$source)) {
-            this["tools"] = [];
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SteamCompatibilityInfo instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SteamCompatibilityInfo {
-        const $$createField7_0 = $$createType17;
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("tools" in $$parsedSource) {
-            $$parsedSource["tools"] = $$createField7_0($$parsedSource["tools"]);
-        }
-        return new SteamCompatibilityInfo($$parsedSource as Partial<SteamCompatibilityInfo>);
-    }
-}
-
-export class SteamCompatibilityTool {
-    "name": string;
-    "display_name": string;
-    "path": string;
-    "built_in": boolean;
-
-    /** Creates a new SteamCompatibilityTool instance. */
-    constructor($$source: Partial<SteamCompatibilityTool> = {}) {
-        if (!("name" in $$source)) {
-            this["name"] = "";
-        }
-        if (!("display_name" in $$source)) {
-            this["display_name"] = "";
-        }
-        if (!("path" in $$source)) {
-            this["path"] = "";
-        }
-        if (!("built_in" in $$source)) {
-            this["built_in"] = false;
-        }
-
-        Object.assign(this, $$source);
-    }
-
-    /**
-     * Creates a new SteamCompatibilityTool instance from a string or object.
-     */
-    static createFrom($$source: any = {}): SteamCompatibilityTool {
-        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        return new SteamCompatibilityTool($$parsedSource as Partial<SteamCompatibilityTool>);
     }
 }
 
@@ -1294,9 +1296,6 @@ const $$createType9 = PortableProtocolStatus.createFrom;
 const $$createType10 = SteamLaunchStatus.createFrom;
 const $$createType11 = SteamBatchImportItemResult.createFrom;
 const $$createType12 = $Create.Array($$createType11);
-const $$createType13 = $Create.Map($Create.Any, $Create.Any);
-const $$createType14 = GameCompatibilityToolsInfo.createFrom;
-const $$createType15 = LocalProtonTool.createFrom;
-const $$createType16 = SteamCompatibilityTool.createFrom;
-const $$createType17 = $Create.Array($$createType16);
-const $$createType18 = SteamCompatibilityInfo.createFrom;
+const $$createType13 = SteamCompatibilityTool.createFrom;
+const $$createType14 = $Create.Array($$createType13);
+const $$createType15 = $Create.Map($Create.Any, $Create.Any);

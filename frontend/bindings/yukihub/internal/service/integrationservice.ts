@@ -20,19 +20,19 @@ export function BatchImportGamesToSteam(gameIDs: string[]): $CancellablePromise<
  */
 export function GetGameCompatibilityTools(gameID: string): $CancellablePromise<$models.GameCompatibilityToolsInfo> {
     return $Call.ByID(2329531978, gameID).then(($result: any) => {
-        return $$createType3($result);
+        return $$createType1($result);
     });
 }
 
 export function GetGameSteamCompatibility(gameID: string): $CancellablePromise<$models.SteamCompatibilityInfo> {
     return $Call.ByID(830408929, gameID).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType2($result);
     });
 }
 
 export function GetGameSteamStatus(gameID: string): $CancellablePromise<$models.SteamLaunchStatus> {
     return $Call.ByID(596984333, gameID).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
@@ -44,7 +44,7 @@ export function GetLocalProtonTools(): $CancellablePromise<$models.LocalProtonTo
 
 export function ImportGameToSteam(gameID: string): $CancellablePromise<$models.SteamImportResult> {
     return $Call.ByID(3268789273, gameID).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType6($result);
     });
 }
 
@@ -65,21 +65,21 @@ export function RestartSteamClient(): $CancellablePromise<void> {
 
 export function SetGameSteamCompatibilityTool(gameID: string, toolName: string): $CancellablePromise<$models.SteamCompatibilityInfo> {
     return $Call.ByID(3484874087, gameID, toolName).then(($result: any) => {
-        return $$createType6($result);
+        return $$createType2($result);
     });
 }
 
 export function SetGameSteamLaunchOptions(gameID: string, launchOptions: string): $CancellablePromise<$models.SteamLaunchStatus> {
     return $Call.ByID(1395297278, gameID, launchOptions).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType3($result);
     });
 }
 
 // Private type creation functions
 const $$createType0 = $models.SteamBatchImportResult.createFrom;
-const $$createType1 = $models.SteamLaunchStatus.createFrom;
-const $$createType2 = $models.SteamImportResult.createFrom;
-const $$createType3 = $models.GameCompatibilityToolsInfo.createFrom;
+const $$createType1 = $models.GameCompatibilityToolsInfo.createFrom;
+const $$createType2 = $models.SteamCompatibilityInfo.createFrom;
+const $$createType3 = $models.SteamLaunchStatus.createFrom;
 const $$createType4 = $models.LocalProtonTool.createFrom;
 const $$createType5 = $Create.Array($$createType4);
-const $$createType6 = $models.SteamCompatibilityInfo.createFrom;
+const $$createType6 = $models.SteamImportResult.createFrom;
