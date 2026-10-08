@@ -246,7 +246,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   config: null,
   draftConfig: null,
   enabledMetadataSources: normalizeEnabledMetadataSources(undefined),
-  platformGOOS: "",
+  // 初值**不能留空字符串**：界面侧的平台门控写的是正判
+  // `platformGOOS === "windows"`（应用内更新、管理员启动、导出快捷启动方式、
+  // Locale Emulator / Magpie、批量导入 Steam 等），而这一项由 fetchPlatformGOOS
+  // 异步填充 —— 初值为空时这些 Windows 功能会被判成"非 Windows"而隐藏；
+  // 若 GetGOOS 调用失败更会永久隐藏。兜底方向取本仓库的历史主平台 Windows，
+  // 真值由 GetGOOS 返回后覆盖；Linux 上即使调用失败，最坏也只是多出几个
+  // 会优雅报错的 Windows 专属入口。
+  platformGOOS: "windows",
   backgroundProcessMuteSupported: false,
   isLoading: false,
   gameRuntimes: {},
@@ -301,7 +308,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         GetGOOS(),
         SupportsBackgroundProcessMute(),
       ]);
-      set({ platformGOOS: goos, backgroundProcessMuteSupported });
+      // 空串会让上面的正判门控全部 fail-closed，这里保留兜底值。
+      set({
+        platformGOOS: goos?.trim() || "windows",
+        backgroundProcessMuteSupported,
+      });
     }
     catch (error) {
       console.error("Failed to fetch platform GOOS:", error);
