@@ -18,14 +18,63 @@ on:
   push:
     tags:
       - 'v*.*.*'  # 例如: v1.0.0, v1.2.3
+  # 手动发布：先在页面右上角「Use workflow from」里**选择一个 v*.*.* 标签**再点运行 ——
+  # 版本号（取自标签）、更新资产目录、changelog 段落都依赖标签；选分支会被下面的
+  # validate 作业几秒内拦下，不会白等一整轮构建。
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: '发布为预览版（pre-release）：只发 GitHub 预发布，不进入稳定更新通道'
+        required: false
+        type: boolean
+        default: false
+      build_windows:
+        description: '构建 Windows（portable + installer × amd64 / arm64）'
+        required: false
+        type: boolean
+        default: true
+      build_linux:
+        description: '构建 Linux（AppImage + deb + rpm，仅 amd64）'
+        required: false
+        type: boolean
+        default: true
+
+# 运行列表里直接看出这次发布的是哪些平台、是不是预览版
+run-name: Release ${{ github.ref_name }}${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }}${{ inputs.prerelease && ' · pre-release' || '' }}
 
 env:
   YUKIHUB_UPDATE_SERVICE_URL: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
 
 jobs:
+  # 手动发布的前置校验：必须是 v*.*.* 标签 ref，且至少勾选一个平台。
+  # 两种情况都在开局几秒内失败，不让用户等完一整轮构建才知道选错了。
+  validate:
+    name: Validate trigger and inputs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check tag ref and platform selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *)
+              echo "::error::发布必须由 v*.*.* 标签触发。手动运行时请在右上角「Use workflow from」里选择一个标签。"
+              exit 1
+              ;;
+          esac
+          if [ "${{ inputs.build_windows }}" = "false" ] && [ "${{ inputs.build_linux }}" = "false" ]; then
+            echo "::error::至少要勾选一个平台（build_windows 或 build_linux）。"
+            exit 1
+          fi
+
   build-release:
     name: Windows ${{ matrix.arch }} / ${{ matrix.mode }}
+    needs: [validate]
+    # 手动运行时未勾选 Windows 就整块跳过；标签推送时 inputs 为空 → 视为勾选
+    if: ${{ inputs.build_windows != false }}
     runs-on: ${{ matrix.runner }}
     permissions:
       actions: read
@@ -325,7 +374,9 @@ jobs:
 
   build-linux:
     name: Linux amd64 / Packages
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [validate]
+    # 标签推送时始终构建；手动运行时还要看 build_linux 有没有勾
+    if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.build_linux != false }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -434,8 +485,13 @@ jobs:
     # **不要**把 build-linux 加进 needs：Linux 打包链依赖 GTK4/WebKitGTK6/nfpm/appimagetool
     # 与 scripts/patch-wails-linux-tray.sh，任何一环出问题都不应该让 Windows 正式版发不出去。
     # Linux 产物是可选增量，下面按「0 个或 3 个」放行。
-    needs: [build-release]
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [validate, build-release]
+    # 手动运行时允许只发一个平台：只要求「被勾选的那些平台」成功。
+    if: >-
+      always()
+      && startsWith(github.ref, 'refs/tags/')
+      && needs.validate.result == 'success'
+      && (inputs.build_windows == false || needs.build-release.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -480,20 +536,25 @@ jobs:
           mkdir -p release
           find ./artifacts -maxdepth 1 -type f \( -name "*.zip" -o -name "*.exe" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} ./release/ \;
 
-          # Windows 四件套（portable / installer × amd64 / arm64）是发布的硬要求。
-          windows_count="$(find ./release -maxdepth 1 -type f \( -name "*.zip" -o -name "*.exe" \) | wc -l | tr -d ' ')"
-          test "$windows_count" -eq 4
+          # Windows 四件套（portable / installer × amd64 / arm64）是发布的硬要求；
+          # 手动运行时没勾 Windows 就不做这项断言（`!= false` 在 tag 推送时为 true）。
+          if [ "${{ inputs.build_windows != false }}" = "true" ]; then
+            windows_count="$(find ./release -maxdepth 1 -type f \( -name "*.zip" -o -name "*.exe" \) | wc -l | tr -d ' ')"
+            test "$windows_count" -eq 4
+          fi
 
           # Linux（deb / rpm / AppImage）为可选：build-linux 失败时这里会是 0，
           # 但只补齐一半（例如只出了 deb）说明产物链异常，仍然拦下。
-          linux_count="$(find ./release -maxdepth 1 -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) | wc -l | tr -d ' ')"
-          case "$linux_count" in
-            0 | 3) ;;
-            *)
-              echo "Linux 产物数量异常：$linux_count（应为 0 或 3）"
-              exit 1
-              ;;
-          esac
+          if [ "${{ startsWith(github.ref, 'refs/tags/') && inputs.build_linux != false }}" = "true" ]; then
+            linux_count="$(find ./release -maxdepth 1 -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) | wc -l | tr -d ' ')"
+            case "$linux_count" in
+              0 | 3) ;;
+              *)
+                echo "Linux 产物数量异常：$linux_count（应为 0 或 3）"
+                exit 1
+                ;;
+            esac
+          fi
 
           ls -lh ./release
 
@@ -648,6 +709,10 @@ jobs:
           echo "" >> release_notes.md
           echo "---" >> release_notes.md
           echo "" >> release_notes.md
+          if [ "${{ inputs.prerelease == true }}" = "true" ]; then
+            echo "> ⚠️ **这是一个预览版（pre-release）**：不进入应用内的稳定更新通道。" >> release_notes.md
+            echo "" >> release_notes.md
+          fi
           echo "### 📦 下载说明" >> release_notes.md
           echo "" >> release_notes.md
           echo "| 文件 | 说明 |" >> release_notes.md
@@ -681,12 +746,15 @@ jobs:
           files: release/*
           body_path: release_notes.md
           draft: false
-          prerelease: false
+          # 手动勾了「发布为预览版」就是 pre-release；标签推送时 inputs 为空 → 正式版
+          prerelease: ${{ inputs.prerelease == true }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish stable update channel
+        # 预览版不进稳定通道
+        if: ${{ inputs.prerelease != true }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.UPDATE_S3_SECRET_ACCESS_KEY }}

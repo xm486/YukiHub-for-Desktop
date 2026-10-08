@@ -7,7 +7,22 @@
 name: Auto Build Pre-release
 
 on:
+  # 仅手动触发。两个平台默认都勾，可以只构建其中一个（例如只验 Linux 打包链）。
   workflow_dispatch:
+    inputs:
+      build_windows:
+        description: '构建 Windows（portable + installer × amd64 / arm64）'
+        required: false
+        type: boolean
+        default: true
+      build_linux:
+        description: '构建 Linux（AppImage + deb + rpm，仅 amd64）'
+        required: false
+        type: boolean
+        default: true
+
+# 运行列表里直接看出这次构建了哪些平台
+run-name: Pre-release build${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }}
 
 concurrency:
   group: yukihub-dev-prerelease
@@ -48,9 +63,19 @@ jobs:
           echo "commit-count=$commit_count" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $version"
 
+      - name: Validate platform selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.build_windows }}" != "true" ] && [ "${{ inputs.build_linux }}" != "true" ]; then
+            echo "::error::至少要勾选一个平台（build_windows 或 build_linux）。"
+            exit 1
+          fi
+
   build-windows:
     name: Windows ${{ matrix.arch }} / ${{ matrix.mode }}
     needs: version
+    if: ${{ inputs.build_windows }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true
@@ -348,6 +373,7 @@ jobs:
   build-linux:
     name: Linux amd64 / Packages
     needs: version
+    if: ${{ inputs.build_linux }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -452,7 +478,14 @@ jobs:
     # **不要**把 build-linux 加进 needs：Linux 打包链依赖 GTK4/WebKitGTK6/nfpm/appimagetool
     # 与 scripts/patch-wails-linux-tray.sh，任何一环出问题都不应该让 Windows 发布停摆。
     # Linux 产物是可选增量，下面按「0 个或 3 个」放行。
-    needs: [version, build-windows]
+    needs: [version, build-windows, build-linux]
+    # 只要求「被勾选的那些平台」成功：没勾的平台是 skipped，不影响发布。
+    if: >-
+      always()
+      && needs.version.result == 'success'
+      && (inputs.build_windows || inputs.build_linux)
+      && (inputs.build_windows == false || needs.build-windows.result == 'success')
+      && (inputs.build_linux == false || needs.build-linux.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -478,20 +511,25 @@ jobs:
           mkdir -p release
           find artifacts -maxdepth 1 -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} release/ \;
 
-          # Windows 四件套（portable / installer × amd64 / arm64）是发布的硬要求。
-          windows_count="$(find release -maxdepth 1 -type f \( -name '*.zip' -o -name '*.exe' \) | wc -l | tr -d ' ')"
-          test "$windows_count" -eq 4
+          # Windows 四件套（portable / installer × amd64 / arm64）是发布的硬要求；
+          # 本次没勾 Windows 就不做这项断言。
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            windows_count="$(find release -maxdepth 1 -type f \( -name '*.zip' -o -name '*.exe' \) | wc -l | tr -d ' ')"
+            test "$windows_count" -eq 4
+          fi
 
           # Linux（deb / rpm / AppImage）为可选：build-linux 失败时这里会是 0，
           # 但只补齐一半（例如只出了 deb）说明产物链异常，仍然拦下。
-          linux_count="$(find release -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) | wc -l | tr -d ' ')"
-          case "$linux_count" in
-            0 | 3) ;;
-            *)
-              echo "Linux 产物数量异常：$linux_count（应为 0 或 3）"
-              exit 1
-              ;;
-          esac
+          if [ "${{ inputs.build_linux }}" = "true" ]; then
+            linux_count="$(find release -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) | wc -l | tr -d ' ')"
+            case "$linux_count" in
+              0 | 3) ;;
+              *)
+                echo "Linux 产物数量异常：$linux_count（应为 0 或 3）"
+                exit 1
+                ;;
+            esac
+          fi
 
           find release -maxdepth 1 -type f -printf '%f\n' | sort
 
@@ -530,13 +568,23 @@ jobs:
 
           | 文件 | 说明 |
           |------|------|
-          | `*-windows-*-portable.zip` | Windows 便携版，解压即用，数据存储在程序目录 |
-          | `*-windows-*-setup.exe` | Windows NSIS 安装版，数据存储在 `%APPDATA%\\YukiHub` |
-          | `*-linux-amd64.AppImage` | Linux AppImage，依赖系统 GTK4 / WebKitGTK 6.0 运行库 |
-          | `*-linux-amd64.deb` | Linux Debian/Ubuntu 安装包 |
-          | `*-linux-amd64.rpm` | Linux Fedora/RHEL/openSUSE 安装包 |
-
-          Windows 提供 AMD64 与 ARM64；Linux 提供 AMD64。
+          EOF
+          # 只列出本次真的构建了的平台
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            echo '| `*-windows-*-portable.zip` | Windows 便携版，解压即用，数据存储在程序目录 |' >> release_notes.md
+            echo '| `*-windows-*-setup.exe` | Windows NSIS 安装版，数据存储在 `%APPDATA%\YukiHub` |' >> release_notes.md
+          fi
+          if [ "${{ inputs.build_linux }}" = "true" ]; then
+            echo '| `*-linux-amd64.AppImage` | Linux AppImage，依赖系统 GTK4 / WebKitGTK 6.0 运行库 |' >> release_notes.md
+            echo '| `*-linux-amd64.deb` | Linux Debian/Ubuntu 安装包 |' >> release_notes.md
+            echo '| `*-linux-amd64.rpm` | Linux Fedora/RHEL/openSUSE 安装包 |' >> release_notes.md
+          fi
+          platforms=""
+          if [ "${{ inputs.build_windows }}" = "true" ]; then platforms="Windows"; fi
+          if [ "${{ inputs.build_linux }}" = "true" ]; then platforms="${platforms:+$platforms / }Linux"; fi
+          echo "" >> release_notes.md
+          echo "> 本次构建平台：$platforms" >> release_notes.md
+          cat <<'EOF' >> release_notes.md
 
           ### ⚠️ 注意事项
 

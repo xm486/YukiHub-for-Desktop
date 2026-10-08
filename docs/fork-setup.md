@@ -95,6 +95,38 @@
 
 这些工作流目前仅支持手动触发或 tag 触发，在配置完成前不会产生失败的自动构建。
 
+## 手动触发构建（workflow_dispatch）
+
+三个流水线支持手动运行，**都带平台勾选**：
+
+| 工作流 | 用途 | 手动输入（括号为默认值） |
+| --- | --- | --- |
+| `release.yml` | 正式发布：S3 更新资产 + 稳定通道 + GitHub Release | `prerelease`（关）、`build_windows`、`build_linux`（都开） |
+| `autobuild.yml` | 滚动开发版 → 标签 `dev-latest`，**永远是 pre-release** | `build_windows`、`build_linux`（都开） |
+| `linux-package.yml` | 只打 Linux 包并上传制品，不碰 S3 / Release | `version`（留空自动生成） |
+
+### 发一个预览版
+
+1. Actions → **Release** → Run workflow
+2. 右上角 **Use workflow from** 选**要发布的标签**（`v*.*.*`）——
+   版本号、更新资产目录、changelog 段落都取自标签；选分支会被 `validate` 作业
+   在几秒内拦下（不会白等一整轮构建）。
+3. 勾选要构建的平台，把 **发布为预览版** 打开。
+4. 结果：GitHub 上是 **pre-release**，`channels/stable/version.json` **不会**被更新 ——
+   应用内的稳定更新通道不受影响。
+
+> 只想拿一个能装的开发版、不想动标签和更新通道，直接用 `autobuild.yml`：
+> 它产出 `dev-latest` 滚动预发布，天然不碰稳定通道。
+
+### 只构建一个平台
+
+取消勾选另一个平台即可（**至少留一个**，否则 `validate` / `version` 直接报错）。
+未勾选的平台整块跳过，产物数量断言（Windows 四件套 / Linux 三件套）也只在
+勾选的平台上执行。快速验 Linux 打包链、又不想等 Windows ARM64 交叉编译时很有用。
+
+`release.yml` 的 Windows 与 Linux **仍然不互相阻塞**：`create-release` 只依赖
+`build-release`，Linux 链路出问题不会让正式版发不出去（产物按「0 个或 3 个」放行）。
+
 ## 6. 品牌素材（待替换）
 
 以下位置仍是上游占位素材，需要替换为 YukiHub 素材：
