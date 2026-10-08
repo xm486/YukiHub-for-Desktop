@@ -12,7 +12,7 @@
 #
 # 注意：代码签名目前依赖 SignPath 的开源项目免费签名。该资格属于上游项目，
 # YukiHub 必须自行申请（或改用自有代码签名证书），否则签名与更新校验环节会失败。
-name: 发布（Release）
+name: 发布版本（Release）
 
 on:
   push:
@@ -21,17 +21,20 @@ on:
   # 手动发布：先在页面右上角「Use workflow from」里**选择一个 v*.*.* 标签**再点运行 ——
   # 版本号（取自标签）、更新资产目录、changelog 段落都依赖标签；选分支会被下面的
   # validate 作业几秒内拦下，不会白等一整轮构建。
+  #
+  # 与 autobuild.yml（开发版快照）的区别：这里的版本号来自你打的 tag，
+  # 发出去的是「真实的下一个版本」，所以可以选预览版 / 正式版。
   workflow_dispatch:
     inputs:
       release_channel:
-        description: '发布方式：仅构建产物＝只产出 Actions 制品，不创建任何 Release；预览版＝GitHub pre-release，不进稳定更新通道；正式版＝完整发布（GitHub Release ＋ 稳定更新通道）'
+        description: '发布方式：仅构建产物＝只产出 Actions 制品，不创建任何 Release；预览版＝把当前标签发成 GitHub pre-release（不进稳定更新通道）；正式版＝GitHub Release ＋ 更新稳定更新通道'
         required: false
         type: choice
         default: '仅构建产物（不发布）'
         options:
           - '仅构建产物（不发布）'
-          - '预览版（pre-release）'
-          - '正式版（release）'
+          - '预览版（此标签标为 pre-release）'
+          - '正式版（Release ＋ 稳定通道）'
       build_windows:
         description: '构建 Windows（portable + installer × amd64 / arm64）'
         required: false
@@ -86,10 +89,10 @@ jobs:
         run: |
           set -euo pipefail
           case "$INPUT_CHANNEL" in
-            '' | '正式版（release）' | release)
+            '' | '正式版（Release ＋ 稳定通道）' | release)
               channel=release
               ;;
-            '预览版（pre-release）' | prerelease)
+            '预览版（此标签标为 pre-release）' | prerelease)
               channel=prerelease
               ;;
             '仅构建产物（不发布）' | artifact)

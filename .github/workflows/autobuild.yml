@@ -4,20 +4,24 @@
 #
 # 依赖与 release.yml 相同的 Variables / Secrets，并额外依赖 SignPath 签名配置。
 # 在上线自建更新服务之前，不要在本仓库启用定时触发，否则会产生无法消费的构建产物。
-name: 开发版构建（Pre-release）
+name: 开发版快照（dev-latest）
 
 on:
   # 仅手动触发。两个平台默认都勾，可以只构建其中一个（例如只验 Linux 打包链）。
+  #
+  # 与 release.yml（发布版本）的区别：这里的版本号是自动生成的
+  # `<最近标签>-dev.<提交数>+<短SHA>`，跟任何正式版本号无关，产物固定覆盖
+  # 滚动预发布 `dev-latest`。它就是「把当前 main 编一份能装的包」，不发正式版。
   workflow_dispatch:
     inputs:
       publish:
-        description: '发布方式：仅构建产物＝只产出 Actions 制品；发布开发版＝覆盖滚动 dev-latest 预发布（pre-release）'
+        description: '发布方式：仅构建产物＝只产出 Actions 制品；发布开发版＝把这次构建覆盖到滚动预发布 dev-latest（永远标 pre-release，不影响稳定更新通道）'
         required: false
         type: choice
         default: '仅构建产物（不发布）'
         options:
           - '仅构建产物（不发布）'
-          - '发布开发版（pre-release）'
+          - '发布开发版（覆盖 dev-latest）'
       build_windows:
         description: '构建 Windows（portable + installer × amd64 / arm64）'
         required: false
@@ -93,7 +97,7 @@ jobs:
             '' | '仅构建产物（不发布）' | artifact)
               mode=artifact
               ;;
-            '发布开发版（pre-release）' | prerelease)
+            '发布开发版（覆盖 dev-latest）' | prerelease)
               mode=prerelease
               ;;
             *)
