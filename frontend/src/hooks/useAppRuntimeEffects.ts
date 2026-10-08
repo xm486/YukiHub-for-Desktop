@@ -52,14 +52,12 @@ type UseAppRuntimeEffectsOptions = {
 const WAILS_RESIZE_BORDER_THICKNESS = 5;
 
 function renderProtocolLaunchConfigToast({
-  visible,
   id,
   message,
   detail,
   actionLabel,
   onAction,
 }: {
-  visible: boolean;
   id: string;
   message: string;
   detail?: string;
@@ -69,7 +67,13 @@ function renderProtocolLaunchConfigToast({
   return createElement(
     "div",
     {
-      className: `rounded-lg border border-brand-200 bg-white px-4 py-3 shadow-lg dark:border-brand-700 dark:bg-brand-800 ${visible ? "animate-enter" : "animate-leave"}`,
+      // 进出场动画由 AppToaster 的堆叠容器统一负责（`animate-app-toast-enter` /
+      // `animate-app-toast-leave`，并已在那里注入 --app-toast-*-y）。这里再写一份
+      // 属于双重动画；而且主题里根本没有 `enter` / `leave` 这两个动画名，
+      // 写成 `animate-enter` / `animate-leave` 会被 UnoCSS **静默丢弃**，
+      // 并被 `pnpm run uno:check` 拦下（曾经的写法正是这样）。
+      className:
+        "rounded-lg border border-brand-200 bg-white px-4 py-3 shadow-lg dark:border-brand-700 dark:bg-brand-800",
     },
     createElement(
       "div",
@@ -219,7 +223,6 @@ export function useAppRuntimeEffects({
           toast.custom(
             toastItem =>
               renderProtocolLaunchConfigToast({
-                visible: toastItem.visible,
                 id: toastItem.id,
                 message,
                 detail,
