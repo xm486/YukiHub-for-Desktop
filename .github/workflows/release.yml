@@ -18,16 +18,26 @@ on:
   push:
     tags:
       - 'v*.*.*'  # 例如: v1.0.0, v1.2.3
-  # 手动发布：先在页面右上角「Use workflow from」里**选择一个 v*.*.* 标签**再点运行 ——
-  # 版本号（取自标签）、更新资产目录、changelog 段落都依赖标签；选分支会被下面的
-  # validate 作业几秒内拦下，不会白等一整轮构建。
+  # 手动发布有两种用法（validate 作业会把二者统一成一个版本号，作为下游唯一来源）：
+  #   1) 在「version」里填版本号（如 1.2.3）后直接运行 —— 可以从任意分支发起，
+  #      Release 建在 v1.2.3 标签上（标签不存在时由 GitHub 自动创建并指向本次提交）。
+  #   2) 留空 version，则在右上角「Use workflow from」里选一个 v*.*.* 标签，用标签版本。
+  # 两者都为空、或互相冲突、或 build_windows/build_linux 都没勾，都会被 validate 几秒内拦下。
   #
-  # 与 autobuild.yml（开发版快照）的区别：这里的版本号来自你打的 tag，
+  # 注意版本号还要和仓库里的 sync/version.json 一致（它是稳定更新通道的版本来源），
+  # 不一致时发布作业会明确报错，提示你先提交版本号变更。
+  #
+  # 与 autobuild.yml（开发版快照）的区别：这里的版本号由你指定，
   # 发出去的是「真实的下一个版本」，所以可以选预览版 / 正式版。
   workflow_dispatch:
     inputs:
+      version:
+        description: '版本号（可选）：留空＝用所选的 v*.*.* 标签；填写则用它（如 1.2.3，可带 v），可从任意分支发布'
+        required: false
+        type: string
+        default: ''
       release_channel:
-        description: '发布方式：仅构建产物＝只产出 Actions 制品，不创建任何 Release；预览版＝把当前标签发成 GitHub pre-release（不进稳定更新通道）；正式版＝GitHub Release ＋ 更新稳定更新通道'
+        description: '发布方式：仅构建产物＝只产出 Actions 制品，不创建任何 Release；预览版＝本次发布标为 GitHub pre-release（不进稳定更新通道）；正式版＝GitHub Release ＋ 更新稳定更新通道'
         required: false
         type: choice
         default: '仅构建产物（不发布）'
@@ -47,34 +57,69 @@ on:
         default: true
 
 # 运行列表里直接看出这次构建了哪些平台、走哪种发布方式
-run-name: 发布 ${{ github.ref_name }}${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }} · ${{ inputs.release_channel || '正式版（标签触发）' }}
+run-name: 发布 ${{ inputs.version || github.ref_name }}${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }} · ${{ inputs.release_channel || '正式版（标签触发）' }}
 
 env:
   YUKIHUB_UPDATE_SERVICE_URL: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
 
 jobs:
-  # 手动发布的前置校验：必须是 v*.*.* 标签 ref，且至少勾选一个平台。
-  # 两种情况都在开局几秒内失败，不让用户等完一整轮构建才知道选错了。
+  # 手动发布的前置校验：解析出唯一版本号（version 输入优先，其次 v*.*.* 标签），
+  # 且至少勾选一个平台。所有情况都在开局几秒内失败，不让用户等完一整轮构建才知道选错了。
   # 同时把「发布方式」解析成 release / prerelease / artifact 三态，供下游作业判断。
   validate:
-    name: 校验触发方式与选项
+    name: 校验触发方式与选项 / 解析版本号
     runs-on: ubuntu-latest
     outputs:
       channel: ${{ steps.channel.outputs.channel }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
     permissions:
       contents: read
     steps:
-      - name: 校验触发方式与平台勾选
+      - name: 解析版本号
+        id: resolve
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          # 版本号来源：优先 version 输入，其次所选标签名；两者都给且不一致时直接报错。
+          input_version="$(printf '%s' "$INPUT_VERSION" | tr -d '[:space:]')"
+          input_version="${input_version#v}"
+
+          tag_version=""
+          case "$GITHUB_REF" in
+            refs/tags/v*) tag_version="${GITHUB_REF_NAME#v}" ;;
+          esac
+
+          if [ -n "$input_version" ] && [ -n "$tag_version" ] && [ "$input_version" != "$tag_version" ]; then
+            echo "::error::version 输入（$input_version）与所选标签（$GITHUB_REF_NAME）不一致。若想用标签版本，请把 version 留空。"
+            exit 1
+          fi
+
+          if [ -n "$input_version" ]; then
+            version="$input_version"
+          elif [ -n "$tag_version" ]; then
+            version="$tag_version"
+          else
+            echo "::error::未提供版本号：请在 version 输入里填写（如 1.2.3），或在右上角「Use workflow from」里选择一个 v*.*.* 标签。"
+            exit 1
+          fi
+
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::版本号格式非法：$version（应形如 1.2.3 或 1.2.3-rc.1）"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "解析得到版本号 $version（标签 v$version）"
+
+      - name: 校验平台勾选
         shell: bash
         run: |
           set -euo pipefail
-          case "$GITHUB_REF" in
-            refs/tags/v*) ;;
-            *)
-              echo "::error::发布必须由 v*.*.* 标签触发。手动运行时请在右上角「Use workflow from」里选择一个标签。"
-              exit 1
-              ;;
-          esac
           if [ "${{ inputs.build_windows }}" = "false" ] && [ "${{ inputs.build_linux }}" = "false" ]; then
             echo "::error::至少要勾选一个平台（build_windows 或 build_linux）。"
             exit 1
@@ -209,12 +254,12 @@ jobs:
           choco install nsis --no-progress -y
           'C:\Program Files (x86)\NSIS' >> $env:GITHUB_PATH
 
-      - name: 从标签读取版本号
+      - name: 读取版本号（由 validate 统一解析）
         id: get_version
         shell: bash
         run: |
           set -euo pipefail
-          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${{ needs.validate.outputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: 构建 Windows 便携版
         if: matrix.mode == 'portable'
@@ -421,8 +466,8 @@ jobs:
   build-linux:
     name: 构建 Linux amd64 安装包
     needs: [validate]
-    # 标签推送时始终构建；手动运行时还要看 build_linux 有没有勾
-    if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.build_linux != false }}
+    # 手动运行时看 build_linux 有没有勾；标签推送时 inputs 为空 → 视为勾选
+    if: ${{ inputs.build_linux != false }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -433,9 +478,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 从标签读取版本号
+      - name: 读取版本号（由 validate 统一解析）
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${{ needs.validate.outputs.version }}" >> $GITHUB_OUTPUT
 
       - name: 安装 Go
         uses: actions/setup-go@v5
@@ -534,10 +579,9 @@ jobs:
     needs: [validate, build-release]
     # 手动运行时允许只发一个平台：只要求「被勾选的那些平台」成功。
     # 发布方式选「仅构建产物」时整块跳过（validate 已把 inputs 解析成 needs.validate.outputs.channel）；
-    # 标签推送时 channel=release，走完整发布。
+    # 版本号与标签由 validate 统一解析（version 输入或 v*.*.* 标签），这里不再直接依赖 ref。
     if: >-
       always()
-      && startsWith(github.ref, 'refs/tags/')
       && needs.validate.result == 'success'
       && needs.validate.outputs.channel != 'artifact'
       && (inputs.build_windows == false || needs.build-release.result == 'success')
@@ -560,9 +604,9 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: 从标签读取版本号
+      - name: 读取版本号（由 validate 统一解析）
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${{ needs.validate.outputs.version }}" >> $GITHUB_OUTPUT
 
       - name: 下载全部制品
         uses: actions/download-artifact@v4
@@ -594,7 +638,7 @@ jobs:
 
           # Linux（deb / rpm / AppImage）为可选：build-linux 失败时这里会是 0，
           # 但只补齐一半（例如只出了 deb）说明产物链异常，仍然拦下。
-          if [ "${{ startsWith(github.ref, 'refs/tags/') && inputs.build_linux != false }}" = "true" ]; then
+          if [ "${{ inputs.build_linux != false }}" = "true" ]; then
             linux_count="$(find ./release -maxdepth 1 -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) | wc -l | tr -d ' ')"
             case "$linux_count" in
               0 | 3) ;;
@@ -617,7 +661,7 @@ jobs:
           UPDATE_S3_BUCKET: ${{ vars.UPDATE_S3_BUCKET }}
           UPDATE_S3_ENDPOINT: ${{ vars.UPDATE_S3_ENDPOINT }}
         run: |
-          CURRENT_TAG="$GITHUB_REF_NAME"
+          CURRENT_TAG="${{ needs.validate.outputs.tag }}"
           PREVIOUS_TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 30 --json tagName,isDraft,isPrerelease --jq "[.[] | select(.isDraft == false and .isPrerelease == false and .tagName != \"$CURRENT_TAG\")][0].tagName // \"\"")"
           PREVIOUS_VERSION="${PREVIOUS_TAG#v}"
           echo "tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
@@ -669,7 +713,7 @@ jobs:
           SOURCE_FILE="sync/version.json"
           SOURCE_VERSION="$(jq -r '.version // empty' "$SOURCE_FILE")"
           if [ "$SOURCE_VERSION" != "$VERSION" ]; then
-            echo "$SOURCE_FILE version $SOURCE_VERSION does not match release version $VERSION" >&2
+            echo "::error::$SOURCE_FILE 里的版本（$SOURCE_VERSION）与本次发布版本（$VERSION）不一致。请先把 $SOURCE_FILE 的 version 改成 $VERSION 并提交，再重新发布。"
             exit 1
           fi
           cp "$SOURCE_FILE" update-assets/version.json
@@ -750,7 +794,7 @@ jobs:
 
           ### 📝 更新内容
 
-          请查看 [Commits](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})
+          请查看 [Commits](https://github.com/${{ github.repository }}/commits/${{ needs.validate.outputs.tag }})
           EOF
           fi
 
@@ -785,7 +829,7 @@ jobs:
           echo "" >> release_notes.md
           echo "### 🔗 相关链接" >> release_notes.md
           echo "" >> release_notes.md
-          echo "- [查看所有提交](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})" >> release_notes.md
+          echo "- [查看所有提交](https://github.com/${{ github.repository }}/commits/${{ needs.validate.outputs.tag }})" >> release_notes.md
 
           cat release_notes.md
 
@@ -795,6 +839,9 @@ jobs:
           files: release/*
           body_path: release_notes.md
           draft: false
+          # 显式指定标签：从分支手动发布时标签可能还不存在，由本步骤自动创建并指向本次提交
+          tag_name: ${{ needs.validate.outputs.tag }}
+          name: ${{ steps.get_version.outputs.VERSION }}
           # 只有「预览版」才是 pre-release；标签推送时 channel=release → 正式版
           prerelease: ${{ needs.validate.outputs.channel == 'prerelease' }}
           generate_release_notes: false

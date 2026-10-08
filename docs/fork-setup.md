@@ -102,7 +102,7 @@
 
 | 工作流 | 用途 | 手动输入（粗体为默认值） |
 | --- | --- | --- |
-| `release.yml`（发布版本） | 从 **git 标签**发布一个真实版本 | `release_channel`（**仅构建产物**）、`build_windows`、`build_linux`（都开） |
+| `release.yml`（发布版本） | 发布一个真实版本 | `version`（可选，留空则用所选标签）、`release_channel`（**仅构建产物**）、`build_windows`、`build_linux`（都开） |
 | `autobuild.yml`（开发版快照） | 把当前 main 编成开发版，覆盖滚动预发布 `dev-latest` | `publish`（**仅构建产物**）、`build_windows`、`build_linux`（都开） |
 | `linux-package.yml`（Linux 安装包） | 只打 Linux 包并上传制品，不碰 S3 / Release | `version`（留空自动生成） |
 | `update-test.yml`（更新链路测试） | 更新链路验证，需自建更新服务后才有意义 | `version`（必填）、`previous_tag` |
@@ -111,7 +111,7 @@
 
 |  | 发布版本（`release.yml`） | 开发版快照（`autobuild.yml`） |
 | --- | --- | --- |
-| 版本号来源 | 你选的 **git 标签**（`v1.2.3`）→ `1.2.3` | 自动生成 `<最近标签>-dev.<提交数>+<短SHA>` |
+| 版本号来源 | 你在 `version` 里填的版本号，或（留空时）所选的 **git 标签**（`v1.2.3`）→ `1.2.3` | 自动生成 `<最近标签>-dev.<提交数>+<短SHA>` |
 | 产物落到哪 | 该标签自己的 GitHub Release | 固定覆盖滚动预发布 `dev-latest` |
 | 会不会进稳定更新通道 | 只有选「正式版」才会 | 永远不会 |
 | 什么时候用 | 要正式发一个版本 | 只想编一个能装的包自己测 / 给人试 |
@@ -133,15 +133,22 @@ Release，也不写稳定更新通道，产物只落在本次运行的 **Artifac
 打标签（`v*.*.*`）触发的运行没有 input，一律按**正式版**处理 —— 「打标签即发布」
 的语义不变。
 
-### 发一个预览版
+### 发布一个版本（不需要先建标签）
 
-1. Actions → **发布版本** → Run workflow
-2. 右上角 **Use workflow from** 选**要发布的标签**（`v*.*.*`）——
-   版本号、更新资产目录、changelog 段落都取自标签；选分支会被 `validate` 作业
-   在几秒内拦下（不会白等一整轮构建）。
-3. 勾选要构建的平台，**发布方式**选「预览版（此标签标为 pre-release）」。
-4. 结果：GitHub 上是 **pre-release**，`channels/stable/version.json` **不会**被更新 ——
-   应用内的稳定更新通道不受影响。
+`release.yml` 的版本号有两种给法，**直接填 `version` 输入最省事**：
+
+1. Actions → **发布版本** → Run workflow。
+2. 在 **version** 里填版本号（如 `1.2.3`，可带 `v`）—— 这样从**任意分支**都能发起，
+   不必先 `git tag && git push`；Release 建在 `v1.2.3` 上，标签不存在时由 GitHub
+   自动创建并指向本次提交。也可以**留空** version，改在右上角 **Use workflow from**
+   里选一个已有的 `v*.*.*` 标签（两者都给且不一致会被 `validate` 拦下）。
+3. 勾选要构建的平台，**发布方式**选「预览版」或「正式版」。
+4. 结果：选**预览版**则 GitHub 上是 **pre-release**，`channels/stable/version.json`
+   **不会**被更新，应用内稳定更新通道不受影响；选**正式版**则同时更新稳定通道。
+
+> ⚠️ 版本号必须和仓库里的 `sync/version.json` 一致（它是稳定更新通道的版本信息源）。
+> 不一致时发布作业会明确报错，提示你先把 `sync/version.json` 的 `version` 改成新版本
+> 并提交，再重新发布。
 
 > 只想拿一个能装的开发版、不想动标签和更新通道，用**开发版快照**：
 > 发布方式选「发布开发版（覆盖 dev-latest）」，它产出 `dev-latest` 滚动预发布，

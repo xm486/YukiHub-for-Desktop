@@ -66,6 +66,11 @@
   `release.yml` 可选仅构建产物 / 预览版 / 正式版，`autobuild.yml` 可选仅构建产物 /
   发布开发版；选「仅构建产物」时整块跳过发布作业，只留 Actions Artifacts。
   打标签触发的运行没有 input，仍按正式版处理
+- `release.yml` 新增 **`version` 版本号输入**：填了就用它，可从**任意分支**直接发布
+  （Release 建在 `v<版本号>` 上，标签不存在时由 GitHub 自动创建并指向本次提交）；
+  留空才回退到所选的 `v*.*.*` 标签。此前版本号只能来自标签，而仓库在首个版本前
+  一个标签都没有，手动发布路径实际走不通。版本号统一由 `validate` 作业解析成
+  version / tag 两个输出下发，三者（输入、标签、`sync/version.json`）不一致都会明确报错
 - Actions 页面里的工作流名、作业名、步骤名改为中文（Go / pnpm / NSIS / SignPath
   等技术专名保留）；PR 检查类作业名不动，避免破坏分支保护的必需检查项
 - CI 增加 `actionlint` 门禁，静态检查 workflow 的 `needs` 引用、表达式属性名、
