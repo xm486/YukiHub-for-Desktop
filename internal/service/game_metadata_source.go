@@ -18,6 +18,100 @@ import (
 	"yukihub/internal/utils/metadata"
 )
 
+// bigScreenScreenshotLimit 是详情层画带最终展示（也是读取）的截图上限，
+// 对齐手机端 BigScreenMeta 合并时的 8 张。
+const bigScreenScreenshotLimit = 8
+
+// bigScreenScreenshotSourceOrder 是详情层画带读取元数据缓存的来源优先级，
+// 逐字对齐手机端 BigScreenMeta.load：NextMoe → VNDB → Bangumi → Ymgal → Hikarinagi。
+var bigScreenScreenshotSourceOrder = []enums.SourceType{
+	enums.NextMoe,
+	enums.VNDB,
+	enums.Bangumi,
+	enums.Ymgal,
+	enums.Hikarinagi,
+}
+
+// GetGameScreenshots 返回大屏详情层 INTRODUCTION 画带要用的截图地址。
+//
+// 合并规则逐字对齐手机端 BigScreenMeta：按来源优先级取**第一个非空来源**的整组截图
+// （不跨来源拼接），上限 8 张 —— 各来源解析时已各自截到 2 张（见 metadata 包）。
+// 数据直接读 game_metadata_sources.cache_json（沿用手机版 VnMetadata 结构，含
+// screenshotUrls），所以两端看到的是同一组图。没有任何来源带截图时返回空切片，
+// 前端把整块画带收起来。
+func (s *GameService) GetGameScreenshots(gameID string) ([]string, error) {
+	gameID = strings.TrimSpace(gameID)
+	if gameID == "" {
+		return []string{}, nil
+	}
+
+	rows, err := s.db.QueryContext(s.ctx, `
+		SELECT source_type, COALESCE(cache_json, '')
+		FROM game_metadata_sources
+		WHERE game_id = ? AND COALESCE(cache_json, '') <> ''
+	`, gameID)
+	if err != nil {
+		return nil, fmt.Errorf("读取游戏截图失败: %w", err)
+	}
+	defer rows.Close()
+
+	payloadBySource := make(map[enums.SourceType]string)
+	for rows.Next() {
+		var sourceType, payload string
+		if err := rows.Scan(&sourceType, &payload); err != nil {
+			return nil, fmt.Errorf("读取游戏截图失败: %w", err)
+		}
+		key := gamehelper.NormalizeMetadataSourceType(enums.SourceType(sourceType))
+		payloadBySource[key] = payload
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历游戏截图失败: %w", err)
+	}
+
+	// 按手机端的来源顺序取第一组非空截图，命中即停
+	for _, source := range bigScreenScreenshotSourceOrder {
+		payload, ok := payloadBySource[source]
+		if !ok {
+			continue
+		}
+		var cached yukihub.Metadata
+		if err := json.Unmarshal([]byte(payload), &cached); err != nil {
+			// 单来源缓存损坏不该拖垮画带：跳过，继续看下一个来源
+			continue
+		}
+		if screenshots := trimBigScreenScreenshots(cached.ScreenshotURLs); len(screenshots) > 0 {
+			return screenshots, nil
+		}
+	}
+
+	return []string{}, nil
+}
+
+// trimBigScreenScreenshots 去空、去重并按画带上限截断。
+func trimBigScreenScreenshots(urls []string) []string {
+	if len(urls) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(urls))
+	for _, raw := range urls {
+		url := strings.TrimSpace(raw)
+		if url == "" || len(out) >= bigScreenScreenshotLimit {
+			continue
+		}
+		duplicated := false
+		for _, existing := range out {
+			if existing == url {
+				duplicated = true
+				break
+			}
+		}
+		if !duplicated {
+			out = append(out, url)
+		}
+	}
+	return out
+}
+
 func scanGameMetadataSources(rows *sql.Rows) ([]models.GameMetadataSource, error) {
 	items := make([]models.GameMetadataSource, 0)
 	for rows.Next() {
@@ -418,25 +512,62 @@ func metadataSourceIDFor(game models.Game, source enums.SourceType) string {
 
 // encodeMetadataCachePayload 把一个刮削结果编码为 Android 版 VnMetadata JSON。
 //
-// 只填两端同名的字段；桌面端没有对应概念的字段（截图、封面分级、罗马音标题）留空，
+// 只填两端同名的字段；桌面端确实没有对应概念的字段（封面分级、罗马音标题）留空，
 // 不做猜测性填充，避免污染对端展示。JSON 结构对齐 docs/mobile-yukihub-migration.md。
+//
+// 截图（screenshotUrls）会写入：VNDB / Hikarinagi / NextMoe 三个来源都能解析到截图，
+// 而手机端 BigScreenMeta 正是从「这份缓存」里按来源顺序取第一组非空值渲染
+// INTRODUCTION 画带 —— 填上它，两端才能看到同一组图。
 func encodeMetadataCachePayload(sourceID string, result metadata.MetadataResult) (string, error) {
 	payload := yukihub.Metadata{
-		ID:            strings.TrimSpace(sourceID),
-		ChineseTitle:  strings.TrimSpace(result.Game.Name),
-		OriginalTitle: firstNonEmptyString(result.Game.Aliases...),
-		CoverURL:      strings.TrimSpace(result.Game.CoverURL),
-		Description:   strings.TrimSpace(result.Game.Summary),
-		Released:      strings.TrimSpace(result.Game.ReleaseDate),
-		Developer:     strings.TrimSpace(result.Game.Company),
-		TagsText:      strings.Join(metadataTagNames(result.Tags), ","),
-		RatingText:    formatMetadataRating(result.Game.Rating),
+		ID:             strings.TrimSpace(sourceID),
+		ChineseTitle:   strings.TrimSpace(result.Game.Name),
+		OriginalTitle:  firstNonEmptyString(result.Game.Aliases...),
+		CoverURL:       strings.TrimSpace(result.Game.CoverURL),
+		Description:    strings.TrimSpace(result.Game.Summary),
+		Released:       strings.TrimSpace(result.Game.ReleaseDate),
+		Developer:      strings.TrimSpace(result.Game.Company),
+		TagsText:       strings.Join(metadataTagNames(result.Tags), ","),
+		RatingText:     formatMetadataRating(result.Game.Rating),
+		ScreenshotURLs: metadataCacheScreenshotURLs(result.Screenshots),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("序列化元数据缓存失败: %w", err)
 	}
 	return string(data), nil
+}
+
+// metadataCacheScreenshotLimit 是写进缓存负载的截图上限，对齐手机端
+// BigScreenMeta 合并后的 8 张。
+const metadataCacheScreenshotLimit = 8
+
+// metadataCacheScreenshotURLs 去空、去重并截断，未命中时返回 nil（序列化后省略该键）。
+func metadataCacheScreenshotURLs(urls []string) []string {
+	if len(urls) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(urls))
+	for _, raw := range urls {
+		url := strings.TrimSpace(raw)
+		if url == "" || len(out) >= metadataCacheScreenshotLimit {
+			continue
+		}
+		duplicated := false
+		for _, existing := range out {
+			if existing == url {
+				duplicated = true
+				break
+			}
+		}
+		if !duplicated {
+			out = append(out, url)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func metadataTagNames(tags []metadata.TagItem) []string {

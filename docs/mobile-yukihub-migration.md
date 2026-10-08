@@ -1099,3 +1099,50 @@ UnoCSS 遇到「色板里没有的色阶」时**不报错、不告警、构建�
 
 - 手机端选图走 `ACTION_OPEN_DOCUMENT`，桌面端走系统文件对话框（与预告片同款）；
 - 手机端 logo 图是满宽显示，桌面端信息层更小一档（max-h-20、左对齐），延续「比手机版小」的约定。
+
+## 十八、2026-10-08 第十二轮：大屏详情层 INTRODUCTION 截图画带
+
+用户：「你这个截图画带，我不记得大屏模式下有这个东西，游戏库倒是应该有，手机端就有的。」
+
+### 18.1 先回答：**只有大屏有，游戏库没有**（全量核对过，不是凭印象）
+
+把手机版所有布局与 Java 都扫了一遍（`android:id="@+id/*shot*"` + `R.id.*shot*`）：
+
+| 界面 | 截图视图 | 结论 |
+| --- | --- | --- |
+| `view_bs_details.xml`（大屏详情层） | `bsDtShotsTitle` + `bsDtShots` | **有**：`BigScreenDetailsLayer.renderScreenshots`（M2 / spec §S3） |
+| `dialog_game_detail.xml`（游戏库详情弹窗） | 无 | 只有 `detailCover` / `detailTitle` / `detailInfo` / `detailPath` + 5 个按钮，**零截图** |
+| `activity_main.xml` 的 `sideScreenshot1/2` | — | 那是**屏幕翻译**功能的原文/译文对比图，与本游戏库无关 |
+
+所以桌面端也**不加**到游戏库详情页 —— 加了就是自创 UI，违背「以手机版为准」。
+
+### 18.2 手机端规格（BigScreenDetailsLayer.java:651-729 + view_bs_details.xml）
+
+- 数据来源：**本地元数据缓存**（`MetadataRepository` 读 DB），不是实时联网。
+  `BigScreenMeta.load` 按来源顺序合并：NextMoe → VNDB → Bangumi → Ymgal → Hikarinagi，
+  **第一个有截图的来源整组胜出**（不跨来源拼接），上限 8 张。
+- 各来源解析时各自只取**前 2 张**：VNDB `screenshots[].thumbnail`（空则回退 `url`）、
+  Hikarinagi `images[].url`、NextMoe `screenshots[].url`。
+- 渲染：标题字面量 `INTRODUCTION`（11sp / 字距 .16 / `#6E7BA0`，**不随语言变**），
+  最多 `min(n, 4)` 张缩略图，196×110dp、间距 8dp、CENTER_CROP 圆角；
+  单张加载失败该张 `GONE`；**一张都没出来时整块收起**（不留空标题）；
+  NSFW 且开了模糊时**整块不渲染**（截图内容无从模糊，直接不给看）。
+
+### 18.3 桌面端实现
+
+| 层 | 改动 |
+| --- | --- |
+| 解析 | `metadata.MetadataResult` 加 `Screenshots`；VNDB（请求 fields 加 `screenshots.url, screenshots.thumbnail`）、Hikarinagi（新增 `images[]`）、NextMoe（新增 `screenshots[]`）各自取前 2 张，统一走 `normalizeMetadataScreenshots` 去空/去重/截断 |
+| 缓存 | `encodeMetadataCachePayload` 开始写 `screenshotUrls` —— 手机端 BigScreenMeta 正是从**这份负载**里取画带，所以填上它两端才看到同一组图（原先注释写「桌面端没有对应概念」已过期，一并改掉） |
+| 读取 | 新增 `GameService.GetGameScreenshots(gameID)`：读 `game_metadata_sources.cache_json`，按上面的来源优先级取第一组非空，上限 8；单来源缓存损坏跳过不报错；无数据返回空切片 |
+| 前端 | `BigScreenDetailsLayer` 在简介与按钮排之间插 `<DetailsScreenshots>`：标题 `INTRODUCTION`（11px / 字距 .16 / `text-brand-500`）、缩略图 160×90（手机 196×110 的小一档）、`gap-2`、`rounded-lg`；单张失败隐藏该张（靠 `ProxyImage` 的 onError，它只在所有候选都失败后才回调）；全失败整块收起；`game.is_nsfw && blur_nsfw_game_covers` 时连请求都不发 |
+
+单测：metadata 包 4 条（JSON 键名 + 取值顺序 + 上限，防止改结构体标签后画带静默变空）、
+service 包 4 条（来源优先级 / 空来源穿透 / 无数据返回空 / 坏缓存跳过）+ 缓存负载断言补截图。
+
+### 18.4 数据前置条件（对用户的说明）
+
+画带读的是**已缓存的元数据**，与手机端一致。所以：
+- 从手机端同步过来的游戏、或本轮之后重新刮削过的游戏，画带即刻可见；
+- 本轮之前在本机刮削的游戏，其缓存里 `screenshotUrls` 是空的（旧代码没写），
+  需要在详情页重新「更新元数据」一次才会出现截图。

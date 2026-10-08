@@ -27,6 +27,44 @@ type TagItem struct {
 type MetadataResult struct {
 	Game models.Game
 	Tags []TagItem
+	// Screenshots 是该来源返回的游戏截图（用于大屏详情层的 INTRODUCTION 画带）。
+	// 只保留前 metadataScreenshotLimit 张 —— 对齐手机端各 Client 的「取前 2 张」。
+	Screenshots []string
+}
+
+// metadataScreenshotLimit 是单个来源最多贡献的截图数。
+//
+// 对齐手机端：VndbClient / HikarinagiClient / NextMoeClient 解析时都写死
+// 「m.screenshotUrls.size() < 2」，也就是每个来源最多 2 张；最终由
+// BigScreenMeta 按来源顺序取第一个非空来源、上限 8 张。
+const metadataScreenshotLimit = 2
+
+// normalizeMetadataScreenshots 去空、去重并按上限截断。
+func normalizeMetadataScreenshots(urls []string) []string {
+	if len(urls) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(urls))
+	for _, raw := range urls {
+		url := strings.TrimSpace(raw)
+		if url == "" || len(out) >= metadataScreenshotLimit {
+			continue
+		}
+		duplicated := false
+		for _, existing := range out {
+			if existing == url {
+				duplicated = true
+				break
+			}
+		}
+		if !duplicated {
+			out = append(out, url)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Getter 获取元数据。

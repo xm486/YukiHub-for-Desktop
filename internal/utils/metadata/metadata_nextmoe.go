@@ -100,21 +100,24 @@ type nextMoeRating struct {
 }
 
 type nextMoeWork struct {
-	Object               string                           `json:"object"`
-	ID                   string                           `json:"id"`
-	DisplayName          string                           `json:"display_name"`
-	Latin                string                           `json:"latin"`
-	Titles               []nextMoeTitle                   `json:"titles"`
-	Localized            map[string]nextMoeLocalizedValue `json:"localized"`
-	OLang                string                           `json:"olang"`
-	Intros               []nextMoeIntro                   `json:"intros"`
-	Cover                *nextMoeCover                    `json:"cover"`
-	Covers               []nextMoeCover                   `json:"covers"`
-	Companies            []nextMoeCompany                 `json:"companies"`
-	Tags                 []nextMoeTag                     `json:"tags"`
-	Ratings              []nextMoeRating                  `json:"ratings"`
-	ReleaseDate          string                           `json:"release_date"`
-	ReleaseDatePrecision string                           `json:"release_date_precision"`
+	Object      string                           `json:"object"`
+	ID          string                           `json:"id"`
+	DisplayName string                           `json:"display_name"`
+	Latin       string                           `json:"latin"`
+	Titles      []nextMoeTitle                   `json:"titles"`
+	Localized   map[string]nextMoeLocalizedValue `json:"localized"`
+	OLang       string                           `json:"olang"`
+	Intros      []nextMoeIntro                   `json:"intros"`
+	Cover       *nextMoeCover                    `json:"cover"`
+	Covers      []nextMoeCover                   `json:"covers"`
+	Companies   []nextMoeCompany                 `json:"companies"`
+	Tags        []nextMoeTag                     `json:"tags"`
+	Ratings     []nextMoeRating                  `json:"ratings"`
+	// Screenshots 是详情接口返回的截图（include 块里的 screenshots）。
+	// 对齐手机端 NextMoeClient 读的 screenshots[].url。
+	Screenshots          []nextMoeCover `json:"screenshots"`
+	ReleaseDate          string         `json:"release_date"`
+	ReleaseDatePrecision string         `json:"release_date_precision"`
 }
 
 type nextMoeWorkListResponse struct {
@@ -290,7 +293,20 @@ func (g NextMoeInfoGetter) metadataResultFromWork(work nextMoeWork) MetadataResu
 		},
 		Tags: g.extractNextMoeTags(work.Tags),
 	}
+	result.Screenshots = nextMoeScreenshotURLs(work.Screenshots)
 	return result
+}
+
+// nextMoeScreenshotURLs 取 screenshots[] 的地址，去重并截断到来源上限。
+func nextMoeScreenshotURLs(shots []nextMoeCover) []string {
+	if len(shots) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(shots))
+	for _, shot := range shots {
+		urls = append(urls, strings.TrimSpace(shot.URL))
+	}
+	return normalizeMetadataScreenshots(urls)
 }
 
 type nextMoeResolvedTitle struct {

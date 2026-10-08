@@ -47,7 +47,7 @@ var _ BatchGetter = (*VNDBInfoGetter)(nil)
 const vndbAPIURL = "https://api.vndb.org/kana/vn"
 const vndbSearchSort = "searchrank"
 const vndbBatchSize = 100
-const vndbFields = "id, title, aliases, titles.lang, titles.title, titles.latin, titles.official, titles.main, image.url, image.sexual, description, rating, released, developers.name, tags.name, tags.rating, tags.spoiler, tags.lie"
+const vndbFields = "id, title, aliases, titles.lang, titles.title, titles.latin, titles.official, titles.main, image.url, image.sexual, description, rating, released, developers.name, tags.name, tags.rating, tags.spoiler, tags.lie, screenshots.url, screenshots.thumbnail"
 
 // VNDB rates cover sexual content from 0 (safe) to 2 (explicit).
 // Treat the midpoint and above as NSFW to avoid marking lightly disputed covers.
@@ -85,16 +85,24 @@ type vndbTitle struct {
 }
 
 type vndbQueryResult struct {
-	ID          string          `json:"id"`
-	Title       string          `json:"title"`
-	Aliases     []string        `json:"aliases"`
-	Titles      []vndbTitle     `json:"titles"`
-	Image       vndbImage       `json:"image"`
-	Description string          `json:"description"`
-	Rating      float64         `json:"rating"`
-	Released    string          `json:"released"`
-	Developers  []vndbDeveloper `json:"developers"`
-	Tags        []vndbTag       `json:"tags"`
+	ID          string           `json:"id"`
+	Title       string           `json:"title"`
+	Aliases     []string         `json:"aliases"`
+	Titles      []vndbTitle      `json:"titles"`
+	Image       vndbImage        `json:"image"`
+	Description string           `json:"description"`
+	Rating      float64          `json:"rating"`
+	Released    string           `json:"released"`
+	Developers  []vndbDeveloper  `json:"developers"`
+	Tags        []vndbTag        `json:"tags"`
+	Screenshots []vndbScreenshot `json:"screenshots"`
+}
+
+// vndbScreenshot 是 VNDB 的 screenshots[] 条目。取图时优先 thumbnail（小图，
+// 画带只需要缩略图），为空再退回 url —— 与手机端 VndbClient 的取值顺序一致。
+type vndbScreenshot struct {
+	URL       string `json:"url"`
+	Thumbnail string `json:"thumbnail"`
 }
 
 type vndbResponse struct {
@@ -129,8 +137,9 @@ func (v VNDBInfoGetter) FetchMetadataBatch(ids []string, token string) (map[stri
 				continue
 			}
 			results[id] = MetadataResult{
-				Game: v.convertResultToGame(item),
-				Tags: extractVNDBTags(item.Tags, v.tagLimit),
+				Game:        v.convertResultToGame(item),
+				Tags:        extractVNDBTags(item.Tags, v.tagLimit),
+				Screenshots: vndbScreenshotURLs(item.Screenshots),
 			}
 		}
 	}
@@ -191,7 +200,11 @@ func (v VNDBInfoGetter) queryVNDB(filters []interface{}, sort string) (MetadataR
 	}
 
 	result := results[0]
-	return MetadataResult{Game: v.convertResultToGame(result), Tags: extractVNDBTags(result.Tags, v.tagLimit)}, nil
+	return MetadataResult{
+		Game:        v.convertResultToGame(result),
+		Tags:        extractVNDBTags(result.Tags, v.tagLimit),
+		Screenshots: vndbScreenshotURLs(result.Screenshots),
+	}, nil
 }
 
 func (v VNDBInfoGetter) queryVNDBResults(filters []interface{}, sort string, resultsLimit int) ([]vndbQueryResult, error) {
@@ -429,6 +442,19 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// vndbScreenshotURLs 取 VNDB screenshots[] 的缩略图地址（thumbnail 优先，退回 url），
+// 去重并截断到每个来源的上限 —— 与手机端 VndbClient 的取值顺序一致。
+func vndbScreenshotURLs(shots []vndbScreenshot) []string {
+	if len(shots) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(shots))
+	for _, shot := range shots {
+		urls = append(urls, firstNonEmpty(strings.TrimSpace(shot.Thumbnail), strings.TrimSpace(shot.URL)))
+	}
+	return normalizeMetadataScreenshots(urls)
 }
 
 // extractVNDBTags 从 VNDB tag 列表中提取 TagItem。

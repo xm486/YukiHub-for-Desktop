@@ -103,6 +103,11 @@ func TestApplyRemoteMetadataCachesSourcePayload(t *testing.T) {
 			{Name: "剧情", Source: "vndb"},
 			{Name: "悬疑", Source: "vndb"},
 		},
+		Screenshots: []string{
+			"https://example.com/s1.jpg",
+			"https://example.com/s1.jpg", // 重复项应被去掉
+			"https://example.com/s2.jpg",
+		},
 	}, false, fields); err != nil {
 		t.Fatalf("apply remote metadata: %v", err)
 	}
@@ -139,6 +144,11 @@ func TestApplyRemoteMetadataCachesSourcePayload(t *testing.T) {
 	}
 	if cached.TagsText != "剧情,悬疑" {
 		t.Errorf("cached tags = %q, want \"剧情,悬疑\"", cached.TagsText)
+	}
+	// 截图要跟着进缓存：手机端 BigScreenMeta 就是从这份负载里取画带的
+	wantScreenshots := []string{"https://example.com/s1.jpg", "https://example.com/s2.jpg"}
+	if !reflect.DeepEqual(cached.ScreenshotURLs, wantScreenshots) {
+		t.Errorf("cached screenshots = %v, want %v", cached.ScreenshotURLs, wantScreenshots)
 	}
 }
 

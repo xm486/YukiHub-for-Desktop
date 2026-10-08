@@ -145,9 +145,24 @@ export function GetGameMetadataSources(gameID: string): $CancellablePromise<mode
     });
 }
 
+/**
+ * GetGameScreenshots 返回大屏详情层 INTRODUCTION 画带要用的截图地址。
+ * 
+ * 合并规则逐字对齐手机端 BigScreenMeta：按来源优先级取**第一个非空来源**的整组截图
+ * （不跨来源拼接），上限 8 张 —— 各来源解析时已各自截到 2 张（见 metadata 包）。
+ * 数据直接读 game_metadata_sources.cache_json（沿用手机版 VnMetadata 结构，含
+ * screenshotUrls），所以两端看到的是同一组图。没有任何来源带截图时返回空切片，
+ * 前端把整块画带收起来。
+ */
+export function GetGameScreenshots(gameID: string): $CancellablePromise<string[]> {
+    return $Call.ByID(2334470654, gameID).then(($result: any) => {
+        return $$createType9($result);
+    });
+}
+
 export function GetGames(req: vo$0.GameListRequest): $CancellablePromise<vo$0.GameListResponse> {
     return $Call.ByID(2074870666, req).then(($result: any) => {
-        return $$createType9($result);
+        return $$createType10($result);
     });
 }
 
@@ -156,7 +171,7 @@ export function GetGames(req: vo$0.GameListRequest): $CancellablePromise<vo$0.Ga
  */
 export function GetRunningProcesses(): $CancellablePromise<processutils$0.ProcessInfo[]> {
     return $Call.ByID(1124921291).then(($result: any) => {
-        return $$createType11($result);
+        return $$createType12($result);
     });
 }
 
@@ -180,31 +195,31 @@ export function OpenLocalPath(path: string): $CancellablePromise<void> {
  */
 export function PreviewLegacyGameMetadataSourceIDs(): $CancellablePromise<$models.GameIDEnrichmentPreview> {
     return $Call.ByID(928219716).then(($result: any) => {
-        return $$createType12($result);
+        return $$createType13($result);
     });
 }
 
 export function RefreshAllGamesMetadata(): $CancellablePromise<vo$0.MetadataRefreshResult> {
     return $Call.ByID(2761252055).then(($result: any) => {
-        return $$createType13($result);
+        return $$createType14($result);
     });
 }
 
 export function RefreshAllGamesMetadataWithFields(fields: enums$0.MetadataUpdateField[]): $CancellablePromise<vo$0.MetadataRefreshResult> {
     return $Call.ByID(3625736150, fields).then(($result: any) => {
-        return $$createType13($result);
+        return $$createType14($result);
     });
 }
 
 export function RefreshGamesMetadata(gameIDs: string[]): $CancellablePromise<vo$0.MetadataRefreshResult> {
     return $Call.ByID(700545834, gameIDs).then(($result: any) => {
-        return $$createType13($result);
+        return $$createType14($result);
     });
 }
 
 export function RefreshGamesMetadataWithFields(gameIDs: string[], fields: enums$0.MetadataUpdateField[]): $CancellablePromise<vo$0.MetadataRefreshResult> {
     return $Call.ByID(1297801843, gameIDs, fields).then(($result: any) => {
-        return $$createType13($result);
+        return $$createType14($result);
     });
 }
 
@@ -361,8 +376,9 @@ const $$createType5 = vo$0.GameGuideDocument.createFrom;
 const $$createType6 = $Create.Array($$createType5);
 const $$createType7 = models$0.GameMetadataSource.createFrom;
 const $$createType8 = $Create.Array($$createType7);
-const $$createType9 = vo$0.GameListResponse.createFrom;
-const $$createType10 = processutils$0.ProcessInfo.createFrom;
-const $$createType11 = $Create.Array($$createType10);
-const $$createType12 = $models.GameIDEnrichmentPreview.createFrom;
-const $$createType13 = vo$0.MetadataRefreshResult.createFrom;
+const $$createType9 = $Create.Array($Create.Any);
+const $$createType10 = vo$0.GameListResponse.createFrom;
+const $$createType11 = processutils$0.ProcessInfo.createFrom;
+const $$createType12 = $Create.Array($$createType11);
+const $$createType13 = $models.GameIDEnrichmentPreview.createFrom;
+const $$createType14 = vo$0.MetadataRefreshResult.createFrom;

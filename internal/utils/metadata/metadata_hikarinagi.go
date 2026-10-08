@@ -116,6 +116,8 @@ type hikarinagiGame struct {
 	TransTitle  *string           `json:"trans_title"`
 	Aliases     []string          `json:"aliases"`
 	Covers      []hikarinagiCover `json:"covers"`
+	// Images 是详情接口返回的游戏截图（对齐手机端 HikarinagiClient 读的 images[]）。
+	Images      []hikarinagiCover `json:"images"`
 	ReleaseDate *string           `json:"release_date"`
 	OriginIntro *string           `json:"origin_intro"`
 	TransIntro  *string           `json:"trans_intro"`
@@ -433,7 +435,23 @@ func (h HikarinagiInfoGetter) convertToMetadataResult(data hikarinagiGame) Metad
 		SourceID:       strconv.FormatInt(data.ID, 10),
 		CachedAt:       time.Now(),
 	}
-	return MetadataResult{Game: game, Tags: extractHikarinagiTags(data.Tags, h.tagLimit)}
+	return MetadataResult{
+		Game:        game,
+		Tags:        extractHikarinagiTags(data.Tags, h.tagLimit),
+		Screenshots: hikarinagiScreenshotURLs(data.Images),
+	}
+}
+
+// hikarinagiScreenshotURLs 取详情接口 images[] 的地址，去重并截断到来源上限。
+func hikarinagiScreenshotURLs(images []hikarinagiCover) []string {
+	if len(images) == 0 {
+		return nil
+	}
+	urls := make([]string, 0, len(images))
+	for _, image := range images {
+		urls = append(urls, strings.TrimSpace(image.URL))
+	}
+	return normalizeMetadataScreenshots(urls)
 }
 
 func bestHikarinagiCoverURL(covers []hikarinagiCover) string {
