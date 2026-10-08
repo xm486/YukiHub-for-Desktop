@@ -12,7 +12,7 @@
 #
 # 注意：代码签名目前依赖 SignPath 的开源项目免费签名。该资格属于上游项目，
 # YukiHub 必须自行申请（或改用自有代码签名证书），否则签名与更新校验环节会失败。
-name: Release
+name: 发布（Release）
 
 on:
   push:
@@ -23,11 +23,15 @@ on:
   # validate 作业几秒内拦下，不会白等一整轮构建。
   workflow_dispatch:
     inputs:
-      prerelease:
-        description: '发布为预览版（pre-release）：只发 GitHub 预发布，不进入稳定更新通道'
+      release_channel:
+        description: '发布方式：仅构建产物＝只产出 Actions 制品，不创建任何 Release；预览版＝GitHub pre-release，不进稳定更新通道；正式版＝完整发布（GitHub Release ＋ 稳定更新通道）'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        default: '仅构建产物（不发布）'
+        options:
+          - '仅构建产物（不发布）'
+          - '预览版（pre-release）'
+          - '正式版（release）'
       build_windows:
         description: '构建 Windows（portable + installer × amd64 / arm64）'
         required: false
@@ -39,8 +43,8 @@ on:
         type: boolean
         default: true
 
-# 运行列表里直接看出这次发布的是哪些平台、是不是预览版
-run-name: Release ${{ github.ref_name }}${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }}${{ inputs.prerelease && ' · pre-release' || '' }}
+# 运行列表里直接看出这次构建了哪些平台、走哪种发布方式
+run-name: 发布 ${{ github.ref_name }}${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }} · ${{ inputs.release_channel || '正式版（标签触发）' }}
 
 env:
   YUKIHUB_UPDATE_SERVICE_URL: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
@@ -48,13 +52,16 @@ env:
 jobs:
   # 手动发布的前置校验：必须是 v*.*.* 标签 ref，且至少勾选一个平台。
   # 两种情况都在开局几秒内失败，不让用户等完一整轮构建才知道选错了。
+  # 同时把「发布方式」解析成 release / prerelease / artifact 三态，供下游作业判断。
   validate:
-    name: Validate trigger and inputs
+    name: 校验触发方式与选项
     runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.channel.outputs.channel }}
     permissions:
       contents: read
     steps:
-      - name: Check tag ref and platform selection
+      - name: 校验触发方式与平台勾选
         shell: bash
         run: |
           set -euo pipefail
@@ -70,8 +77,44 @@ jobs:
             exit 1
           fi
 
+      # 标签推送时 inputs 为空 → 一律按正式版处理（保持打标签即发布的语义）。
+      - name: 解析发布方式
+        id: channel
+        shell: bash
+        env:
+          INPUT_CHANNEL: ${{ inputs.release_channel }}
+        run: |
+          set -euo pipefail
+          case "$INPUT_CHANNEL" in
+            '' | '正式版（release）' | release)
+              channel=release
+              ;;
+            '预览版（pre-release）' | prerelease)
+              channel=prerelease
+              ;;
+            '仅构建产物（不发布）' | artifact)
+              channel=artifact
+              ;;
+            *)
+              echo "::error::未知的发布方式：$INPUT_CHANNEL"
+              exit 1
+              ;;
+          esac
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          case "$channel" in
+            artifact)
+              echo "::notice::本次只构建产物：不会创建任何 Release，也不会写入稳定更新通道。产物在本次运行的 Artifacts 区域下载。"
+              ;;
+            prerelease)
+              echo "::notice::本次发布为预览版（pre-release）：不会更新稳定更新通道。"
+              ;;
+            release)
+              echo "::notice::本次为完整发布：创建 GitHub Release 并更新稳定更新通道。"
+              ;;
+          esac
+
   build-release:
-    name: Windows ${{ matrix.arch }} / ${{ matrix.mode }}
+    name: 构建 Windows ${{ matrix.arch }} / ${{ matrix.mode }}
     needs: [validate]
     # 手动运行时未勾选 Windows 就整块跳过；标签推送时 inputs 为空 → 视为勾选
     if: ${{ inputs.build_windows != false }}
@@ -101,12 +144,12 @@ jobs:
             toolchain: mingw-w64-clang-aarch64-toolchain
     
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -115,19 +158,19 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install matching Wails v3 CLI
+      - name: 安装匹配版本的 Wails v3 CLI
         shell: pwsh
         run: |
           $Version = (go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3).Trim()
@@ -137,7 +180,7 @@ jobs:
             throw "wails3 version mismatch: expected $Version, found $Installed"
           }
 
-      - name: Setup ARM64 CGO toolchain
+      - name: 配置 ARM64 CGO 工具链（MSYS2）
         id: msys2-arm64
         if: matrix.arch == 'arm64'
         uses: msys2/setup-msys2@v2
@@ -146,7 +189,7 @@ jobs:
           path-type: inherit
           install: ${{ matrix.toolchain }}
 
-      - name: Export ARM64 MSYS2 location
+      - name: 导出 ARM64 MSYS2 路径
         if: matrix.arch == 'arm64'
         shell: pwsh
         run: |
@@ -156,21 +199,21 @@ jobs:
           }
           "MSYS2_LOCATION=$Location" >> $env:GITHUB_ENV
 
-      - name: Install NSIS
+      - name: 安装 NSIS
         if: matrix.mode == 'installer'
         shell: pwsh
         run: |
           choco install nsis --no-progress -y
           'C:\Program Files (x86)\NSIS' >> $env:GITHUB_PATH
 
-      - name: Get version from tag
+      - name: 从标签读取版本号
         id: get_version
         shell: bash
         run: |
           set -euo pipefail
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build Portable with script
+      - name: 构建 Windows 便携版
         if: matrix.mode == 'portable'
         env:
           YUKIHUB_BANGUMI_CLIENT_ID: ${{ vars.YUKIHUB_BANGUMI_CLIENT_ID }}
@@ -191,7 +234,7 @@ jobs:
           }
         shell: pwsh
 
-      - name: Build Installer Payload with script
+      - name: 构建 Windows 安装版载荷
         if: matrix.mode == 'installer'
         env:
           YUKIHUB_BANGUMI_CLIENT_ID: ${{ vars.YUKIHUB_BANGUMI_CLIENT_ID }}
@@ -244,7 +287,7 @@ jobs:
           }
         shell: pwsh
 
-      - name: Upload Portable Artifact
+      - name: 上传便携版制品
         if: matrix.mode == 'portable'
         uses: actions/upload-artifact@v4
         with:
@@ -252,7 +295,7 @@ jobs:
           path: signed/YukiHub-${{ steps.get_version.outputs.VERSION }}-windows-${{ matrix.arch }}-portable.zip
           if-no-files-found: error
 
-      - name: Upload Unsigned Installer Payload
+      - name: 上传未签名安装版载荷
         id: upload-unsigned-installer-payload
         if: matrix.mode == 'installer'
         uses: actions/upload-artifact@v4
@@ -262,7 +305,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign Installer Payload
+      - name: 提交安装版载荷签名（SignPath）
         if: matrix.mode == 'installer'
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -276,7 +319,7 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-payload
 
-      - name: Build Installer from signed payload
+      - name: 基于已签名载荷构建安装包
         if: matrix.mode == 'installer'
         run: |
           $ErrorActionPreference = "Stop"
@@ -322,14 +365,14 @@ jobs:
           }
         shell: pwsh
 
-      - name: Upload update runtime input
+      - name: 上传更新运行时输入
         uses: actions/upload-artifact@v4
         with:
           name: update-runtime-${{ steps.get_version.outputs.VERSION }}-windows-${{ matrix.arch }}-${{ matrix.mode }}
           path: update-runtime/
           if-no-files-found: error
 
-      - name: Upload Unsigned Installer Artifact
+      - name: 上传未签名安装包
         id: upload-unsigned-installer
         if: matrix.mode == 'installer'
         uses: actions/upload-artifact@v4
@@ -339,7 +382,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign Installer Artifact
+      - name: 提交安装包签名（SignPath）
         if: matrix.mode == 'installer'
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -353,7 +396,7 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-installer
 
-      - name: Verify signed installer artifact
+      - name: 校验已签名安装包
         if: matrix.mode == 'installer'
         run: |
           $ErrorActionPreference = "Stop"
@@ -364,7 +407,7 @@ jobs:
           }
         shell: pwsh
 
-      - name: Upload Installer Artifact
+      - name: 上传安装包制品
         if: matrix.mode == 'installer'
         uses: actions/upload-artifact@v4
         with:
@@ -373,7 +416,7 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: Linux amd64 / Packages
+    name: 构建 Linux amd64 安装包
     needs: [validate]
     # 标签推送时始终构建；手动运行时还要看 build_linux 有没有勾
     if: ${{ startsWith(github.ref, 'refs/tags/') && inputs.build_linux != false }}
@@ -382,16 +425,16 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get version from tag
+      - name: 从标签读取版本号
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -400,33 +443,33 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install Linux build dependencies
+      - name: 安装 Linux 构建依赖
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y build-essential ca-certificates curl desktop-file-utils libayatana-appindicator3-dev libgtk-4-dev libwebkitgtk-6.0-dev pkg-config
 
-      - name: Install nFPM
+      - name: 安装 nFPM
         shell: bash
         run: |
           set -euo pipefail
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           nfpm --version
 
-      - name: Install appimagetool
+      - name: 安装 appimagetool
         shell: bash
         run: |
           set -euo pipefail
@@ -438,7 +481,7 @@ jobs:
           sudo install -m 0755 "$tool_path" /usr/local/bin/appimagetool
           APPIMAGE_EXTRACT_AND_RUN=1 appimagetool --version
 
-      - name: Install matching Wails v3 CLI
+      - name: 安装匹配版本的 Wails v3 CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -446,11 +489,11 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
           test "$(wails3 version 2>&1)" = "$version"
 
-      - name: Patch Wails Linux tray support
+      - name: 修补 Wails Linux 托盘支持
         shell: bash
         run: ./scripts/patch-wails-linux-tray.sh
 
-      - name: Build Linux packages
+      - name: 构建 Linux 安装包
         shell: bash
         env:
           YUKIHUB_UPDATE_SERVICE_URL: ${{ vars.YUKIHUB_UPDATE_SERVICE_URL }}
@@ -470,7 +513,7 @@ jobs:
           test "$(find build/bin -maxdepth 1 -type f -name 'YukiHub-*-linux-amd64.rpm' | wc -l | tr -d ' ')" -eq 1
           test "$(find build/bin -maxdepth 1 -type f -name 'YukiHub-*-linux-amd64.AppImage' | wc -l | tr -d ' ')" -eq 1
 
-      - name: Upload Linux packages
+      - name: 上传 Linux 安装包
         uses: actions/upload-artifact@v4
         with:
           name: yukihub-${{ steps.get_version.outputs.VERSION }}-linux-amd64
@@ -481,16 +524,19 @@ jobs:
           if-no-files-found: error
 
   create-release:
-    name: Create GitHub Release
+    name: 创建 Release（正式 / 预览）
     # **不要**把 build-linux 加进 needs：Linux 打包链依赖 GTK4/WebKitGTK6/nfpm/appimagetool
     # 与 scripts/patch-wails-linux-tray.sh，任何一环出问题都不应该让 Windows 正式版发不出去。
     # Linux 产物是可选增量，下面按「0 个或 3 个」放行。
     needs: [validate, build-release]
     # 手动运行时允许只发一个平台：只要求「被勾选的那些平台」成功。
+    # 发布方式选「仅构建产物」时整块跳过（validate 已把 inputs 解析成 needs.validate.outputs.channel）；
+    # 标签推送时 channel=release，走完整发布。
     if: >-
       always()
       && startsWith(github.ref, 'refs/tags/')
       && needs.validate.result == 'success'
+      && needs.validate.outputs.channel != 'artifact'
       && (inputs.build_windows == false || needs.build-release.result == 'success')
     runs-on: ubuntu-latest
     permissions:
@@ -498,12 +544,12 @@ jobs:
       contents: write
     
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -511,27 +557,27 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: Get version from tag
+      - name: 从标签读取版本号
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Download all artifacts
+      - name: 下载全部制品
         uses: actions/download-artifact@v4
         with:
           pattern: yukihub-*
           path: ./artifacts
           merge-multiple: true
 
-      - name: Download signed update runtime inputs
+      - name: 下载已签名的更新运行时输入
         uses: actions/download-artifact@v4
         with:
           pattern: update-runtime-*
           path: ./update-runtime-artifacts
 
-      - name: Display structure of downloaded files
+      - name: 列出下载到的文件
         run: ls -R ./artifacts
 
-      - name: Prepare release files
+      - name: 整理发布文件
         run: |
           mkdir -p release
           find ./artifacts -maxdepth 1 -type f \( -name "*.zip" -o -name "*.exe" -o -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} ./release/ \;
@@ -558,7 +604,7 @@ jobs:
 
           ls -lh ./release
 
-      - name: Find previous stable release
+      - name: 查找上一个稳定版
         id: previous_release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -585,12 +631,12 @@ jobs:
               --endpoint-url "$UPDATE_S3_ENDPOINT" || true
           fi
 
-      - name: Install Zstandard CLI
+      - name: 安装 Zstandard 命令行工具
         run: |
           sudo apt-get update
           sudo apt-get install -y zstd
 
-      - name: Generate full and delta update assets
+      - name: 生成全量与增量更新资产
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
           PREVIOUS_VERSION: ${{ steps.previous_release.outputs.version }}
@@ -613,7 +659,7 @@ jobs:
           jq empty "update-assets/YukiHub-${VERSION}-update-manifest.json"
           ls -lh ./update-assets
 
-      - name: Generate update version source
+      - name: 生成更新版本文件（version.json）
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
@@ -626,7 +672,7 @@ jobs:
           cp "$SOURCE_FILE" update-assets/version.json
           jq empty update-assets/version.json
 
-      - name: Upload update assets to S3
+      - name: 上传更新资产到 S3
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID }}
@@ -654,7 +700,7 @@ jobs:
             --cache-control "public,max-age=31536000,immutable" \
             --endpoint-url "$UPDATE_S3_ENDPOINT"
 
-      - name: Generate release notes
+      - name: 生成发布说明
         id: release_notes
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
@@ -709,7 +755,7 @@ jobs:
           echo "" >> release_notes.md
           echo "---" >> release_notes.md
           echo "" >> release_notes.md
-          if [ "${{ inputs.prerelease == true }}" = "true" ]; then
+          if [ "${{ needs.validate.outputs.channel }}" = "prerelease" ]; then
             echo "> ⚠️ **这是一个预览版（pre-release）**：不进入应用内的稳定更新通道。" >> release_notes.md
             echo "" >> release_notes.md
           fi
@@ -740,21 +786,21 @@ jobs:
 
           cat release_notes.md
 
-      - name: Create Release
+      - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release/*
           body_path: release_notes.md
           draft: false
-          # 手动勾了「发布为预览版」就是 pre-release；标签推送时 inputs 为空 → 正式版
-          prerelease: ${{ inputs.prerelease == true }}
+          # 只有「预览版」才是 pre-release；标签推送时 channel=release → 正式版
+          prerelease: ${{ needs.validate.outputs.channel == 'prerelease' }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish stable update channel
-        # 预览版不进稳定通道
-        if: ${{ inputs.prerelease != true }}
+      - name: 发布到稳定更新通道
+        # 只有「正式版」才写入稳定通道（预览版与仅构建产物都不写）
+        if: ${{ needs.validate.outputs.channel == 'release' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.UPDATE_S3_SECRET_ACCESS_KEY }}

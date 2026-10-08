@@ -1,4 +1,4 @@
-name: Internal Checks
+name: 后端检查（Go + 前端）
 
 on:
   push:
@@ -13,7 +13,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "Taskfile.yml"
-      - ".github/workflows/internal.yml"
+      - ".github/workflows/**"
   pull_request:
     branches: [main, master, develop]
     paths:
@@ -26,7 +26,7 @@ on:
       - "go.mod"
       - "go.sum"
       - "Taskfile.yml"
-      - ".github/workflows/internal.yml"
+      - ".github/workflows/**"
 
 permissions:
   contents: read
@@ -41,20 +41,30 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 40
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: Setup Go
+      # workflow 文件本身也是代码：改了 if / needs / outputs 却要等手动触发才发现问题，
+      # 成本太高（发布流水线尤其如此）。actionlint 能静态查出 job-needs 引用、表达式里
+      # 写错的属性名、shell 语法等 —— 例如 needs.<job>.outputs 拼错一个字母就会失败。
+      - name: 检查 GitHub Actions workflow（actionlint）
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color
+
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -63,15 +73,15 @@ jobs:
 
       # 先构建前端：main.go 里有 //go:embed all:frontend/dist，
       # vet/test 都需要 frontend/dist 存在。
-      - name: Install frontend dependencies
+      - name: 安装前端依赖
         working-directory: ./frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Build frontend assets
+      - name: 构建前端产物
         working-directory: ./frontend
         run: pnpm run build
 
-      - name: Check Go formatting
+      - name: 检查 Go 代码格式（gofmt）
         shell: bash
         run: |
           set -euo pipefail
@@ -82,7 +92,7 @@ jobs:
             exit 1
           fi
 
-      - name: Install matching Wails v3 CLI
+      - name: 安装匹配版本的 Wails v3 CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -90,19 +100,19 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
           test "$(wails3 version 2>&1)" = "$version"
 
-      - name: Vet
+      - name: 静态检查（go vet）
         run: go vet ./...
 
-      - name: Test
+      - name: 运行测试（go test）
         # 上游这一步是 go test -run '^$' ./internal/...，只编译、不执行任何用例。
         # YukiHub for Windows 要求测试真实执行，否则重构与裁剪没有任何安全网。
         run: go test ./... -count=1
 
-      - name: Test updater module
+      - name: 运行 updater 模块测试
         working-directory: ./updater
         run: go test ./... -count=1
 
-      - name: Build application with Wails v3
+      - name: 构建应用（wails3 build）
         run: wails3 build
 
 
@@ -111,25 +121,25 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Install Linux build dependencies
+      - name: 安装 Linux 构建依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential libayatana-appindicator3-dev libgtk-4-dev libwebkitgtk-6.0-dev pkg-config
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -138,15 +148,15 @@ jobs:
 
       # 先构建前端：main.go 里有 //go:embed all:frontend/dist，
       # vet/test 都需要 frontend/dist 存在。
-      - name: Install frontend dependencies
+      - name: 安装前端依赖
         working-directory: ./frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Build frontend assets
+      - name: 构建前端产物
         working-directory: ./frontend
         run: pnpm run build
 
-      - name: Check Go formatting
+      - name: 检查 Go 代码格式（gofmt）
         shell: bash
         run: |
           set -euo pipefail
@@ -157,7 +167,7 @@ jobs:
             exit 1
           fi
 
-      - name: Install matching Wails v3 CLI
+      - name: 安装匹配版本的 Wails v3 CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -165,19 +175,19 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
           test "$(wails3 version 2>&1)" = "$version"
 
-      - name: Patch Wails Linux tray support
+      - name: 修补 Wails Linux 托盘支持
         shell: bash
         run: ./scripts/patch-wails-linux-tray.sh
 
-      - name: Vet
+      - name: 静态检查（go vet）
         run: go vet ./...
 
-      - name: Test
+      - name: 运行测试（go test）
         run: go test ./... -count=1
 
-      - name: Test updater module
+      - name: 运行 updater 模块测试
         working-directory: ./updater
         run: go test ./... -count=1
 
-      - name: Build application with Wails v3
+      - name: 构建应用（wails3 build）
         run: wails3 build

@@ -1,4 +1,4 @@
-name: Migration E2E
+name: 数据库迁移端到端测试
 
 on:
   workflow_dispatch:
@@ -29,14 +29,14 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Run migration E2E test
+      - name: 运行迁移端到端测试
         run: go test ./internal/migrations -run '^TestMigrationsFromInitToLatest$' -count=1 -v

@@ -1,4 +1,4 @@
-name: Frontend Checks
+name: 前端检查
 
 on:
   push:
@@ -20,41 +20,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install dependencies
+      - name: 安装依赖
         working-directory: ./frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Audit dependencies
+      - name: 审计生产依赖
         working-directory: ./frontend
         # 只看生产依赖：devDependencies 的告警不应阻塞 CI（与上游 LunaBox 一致）
         run: pnpm audit --prod
 
-      - name: Run ESLint
+      - name: 运行 ESLint
         working-directory: ./frontend
         run: pnpm exec eslint src --format compact
 
-      - name: Check internationalization files
+      - name: 检查 i18n 语言文件
         working-directory: ./frontend
         run: pnpm run i18n:check
 
       # UnoCSS 对「色板缺档 / 动画名不存在」不报错也不生成 CSS，
       # 遮罩变透明这种线上问题就是这么来的（见 bg-brand-950）
-      - name: Check UnoCSS tokens
+      - name: 检查 UnoCSS 令牌
         working-directory: ./frontend
         run: pnpm run uno:check
 
-      - name: Build frontend
+      - name: 构建前端
         working-directory: ./frontend
         run: pnpm run build

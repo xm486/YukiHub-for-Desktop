@@ -6,7 +6,7 @@
 # 构建依赖与发布流水线中的 Linux 作业完全一致：
 # GTK4 / WebKitGTK 6.0 开发库、nFPM、appimagetool、匹配版本的 Wails v3 CLI，
 # 以及必须执行的 scripts/patch-wails-linux-tray.sh。
-name: Linux Packages
+name: Linux 安装包（仅构建）
 
 on:
   workflow_dispatch:
@@ -21,17 +21,17 @@ permissions:
 
 jobs:
   build-linux:
-    name: Linux amd64 / Packages
+    name: 构建 Linux amd64 安装包
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve version
+      - name: 解析版本号
         id: version
         shell: bash
         env:
@@ -45,7 +45,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $version"
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -54,33 +54,33 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install Linux build dependencies
+      - name: 安装 Linux 构建依赖
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y build-essential ca-certificates curl desktop-file-utils libayatana-appindicator3-dev libgtk-4-dev libwebkitgtk-6.0-dev pkg-config
 
-      - name: Install nFPM
+      - name: 安装 nFPM
         shell: bash
         run: |
           set -euo pipefail
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           nfpm --version
 
-      - name: Install appimagetool
+      - name: 安装 appimagetool
         shell: bash
         run: |
           set -euo pipefail
@@ -92,7 +92,7 @@ jobs:
           sudo install -m 0755 "$tool_path" /usr/local/bin/appimagetool
           APPIMAGE_EXTRACT_AND_RUN=1 appimagetool --version
 
-      - name: Install matching Wails v3 CLI
+      - name: 安装匹配版本的 Wails v3 CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -100,14 +100,14 @@ jobs:
           go install "github.com/wailsapp/wails/v3/cmd/wails3@$version"
           test "$(wails3 version 2>&1)" = "$version"
 
-      - name: Patch Wails Linux tray support
+      - name: 修补 Wails Linux 托盘支持
         shell: bash
         run: |
           set -euo pipefail
           chmod +x scripts/*.sh
           ./scripts/patch-wails-linux-tray.sh
 
-      - name: Build Linux packages
+      - name: 构建 Linux 安装包
         shell: bash
         env:
           BUILD_VERSION: ${{ steps.version.outputs.version }}
@@ -128,7 +128,7 @@ jobs:
           test "$(find build/bin -maxdepth 1 -type f -name 'YukiHub-*-linux-amd64.rpm' | wc -l | tr -d ' ')" -eq 1
           test "$(find build/bin -maxdepth 1 -type f -name 'YukiHub-*-linux-amd64.AppImage' | wc -l | tr -d ' ')" -eq 1
 
-      - name: Upload Linux packages
+      - name: 上传 Linux 安装包
         uses: actions/upload-artifact@v4
         with:
           name: yukihub-${{ steps.version.outputs.version }}-linux-amd64

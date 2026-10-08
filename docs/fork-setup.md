@@ -97,26 +97,43 @@
 
 ## 手动触发构建（workflow_dispatch）
 
-三个流水线支持手动运行，**都带平台勾选**：
+四个流水线支持手动运行，**都带平台勾选**；Actions 页面里的工作流名、作业名、
+步骤名都是中文，日志和发布方式都会在开头用 notice 说明。
 
-| 工作流 | 用途 | 手动输入（括号为默认值） |
+| 工作流 | 用途 | 手动输入（粗体为默认值） |
 | --- | --- | --- |
-| `release.yml` | 正式发布：S3 更新资产 + 稳定通道 + GitHub Release | `prerelease`（关）、`build_windows`、`build_linux`（都开） |
-| `autobuild.yml` | 滚动开发版 → 标签 `dev-latest`，**永远是 pre-release** | `build_windows`、`build_linux`（都开） |
-| `linux-package.yml` | 只打 Linux 包并上传制品，不碰 S3 / Release | `version`（留空自动生成） |
+| `release.yml`（发布） | 发布：S3 更新资产 +（可选）稳定通道 + GitHub Release | `release_channel`（**仅构建产物**）、`build_windows`、`build_linux`（都开） |
+| `autobuild.yml`（开发版构建） | 滚动开发版 → 标签 `dev-latest` | `publish`（**仅构建产物**）、`build_windows`、`build_linux`（都开） |
+| `linux-package.yml`（Linux 安装包） | 只打 Linux 包并上传制品，不碰 S3 / Release | `version`（留空自动生成） |
+| `update-test.yml`（更新链路测试） | 更新链路验证，需自建更新服务后才有意义 | `version`（必填）、`previous_tag` |
+
+### 只想产出产物、不想发布
+
+两个发布流水线的**发布方式默认都是「仅构建产物（不发布）」**：不创建 / 覆盖任何
+Release，也不写稳定更新通道，产物只落在本次运行的 **Artifacts** 区域。
+
+| 发布方式 | `release.yml` | `autobuild.yml` |
+| --- | --- | --- |
+| 仅构建产物 | 不创建 Release，不写稳定通道 | 不创建 / 不覆盖 `dev-latest` |
+| 预览版 / 开发版 | GitHub pre-release，不写稳定通道 | 覆盖滚动 `dev-latest` pre-release |
+| 正式版 | GitHub Release + 稳定通道 `channels/stable/version.json` | —（开发版没有正式版模式） |
+
+打标签（`v*.*.*`）触发的运行没有 input，一律按**正式版**处理 —— 「打标签即发布」
+的语义不变。
 
 ### 发一个预览版
 
-1. Actions → **Release** → Run workflow
+1. Actions → **发布** → Run workflow
 2. 右上角 **Use workflow from** 选**要发布的标签**（`v*.*.*`）——
    版本号、更新资产目录、changelog 段落都取自标签；选分支会被 `validate` 作业
    在几秒内拦下（不会白等一整轮构建）。
-3. 勾选要构建的平台，把 **发布为预览版** 打开。
+3. 勾选要构建的平台，**发布方式**选「预览版（pre-release）」。
 4. 结果：GitHub 上是 **pre-release**，`channels/stable/version.json` **不会**被更新 ——
    应用内的稳定更新通道不受影响。
 
-> 只想拿一个能装的开发版、不想动标签和更新通道，直接用 `autobuild.yml`：
-> 它产出 `dev-latest` 滚动预发布，天然不碰稳定通道。
+> 只想拿一个能装的开发版、不想动标签和更新通道，用**开发版构建**：
+> 发布方式选「发布开发版（pre-release）」，它产出 `dev-latest` 滚动预发布，
+> 天然不碰稳定通道。
 
 ### 只构建一个平台
 

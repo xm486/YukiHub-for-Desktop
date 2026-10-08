@@ -4,7 +4,7 @@
 #
 # 依赖与 release.yml 相同的 UPDATE_S3_* / UPDATE_PUBLIC_BASE_URL 配置。
 # 只有在自建更新服务可用后，本工作流才有实际意义。
-name: Test Update Release
+name: 更新链路测试发布
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ env:
 
 jobs:
   prepare:
-    name: Validate Test Release
+    name: 校验测试发布参数
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,12 +40,12 @@ jobs:
       previous_version: ${{ steps.release.outputs.previous_version }}
 
     steps:
-      - name: Checkout selected branch
+      - name: 拉取指定分支代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Validate release inputs
+      - name: 校验测试发布参数
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
           echo "previous_version=$PREVIOUS_VERSION" >> "$GITHUB_OUTPUT"
 
   build-prerelease:
-    name: Windows ${{ matrix.arch }} / ${{ matrix.mode }}
+    name: 构建 Windows ${{ matrix.arch }} / ${{ matrix.mode }}
     needs: prepare
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -100,12 +100,12 @@ jobs:
             runner: windows-2025
 
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -114,26 +114,26 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: Setup pnpm
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 12.6.0
 
-      - name: Setup Node.js
+      - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: Install NSIS
+      - name: 安装 NSIS
         if: matrix.mode == 'installer'
         shell: pwsh
         run: |
           choco install nsis --no-progress -y
           'C:\Program Files (x86)\NSIS' >> $env:GITHUB_PATH
 
-      - name: Install matching Wails v3 CLI
+      - name: 安装匹配版本的 Wails v3 CLI
         shell: pwsh
         run: |
           $Version = (go list -m -f '{{.Version}}' github.com/wailsapp/wails/v3).Trim()
@@ -143,7 +143,7 @@ jobs:
             throw "wails3 version mismatch: expected $Version, found $Installed"
           }
 
-      - name: Build portable package
+      - name: 构建便携版
         if: matrix.mode == 'portable'
         shell: pwsh
         env:
@@ -183,7 +183,7 @@ jobs:
             Copy-Item -LiteralPath $Source -Destination $SigningDir -Force
           }
 
-      - name: Build installer payload
+      - name: 构建安装版载荷
         if: matrix.mode == 'installer'
         shell: pwsh
         env:
@@ -211,7 +211,7 @@ jobs:
           Copy-Item -LiteralPath "$PayloadDir/YukiHub.exe" -Destination $SigningDir -Force
           Copy-Item -LiteralPath 'build/bin/YukiHubUpdater.exe' -Destination $SigningDir -Force
 
-      - name: Upload unsigned portable artifact
+      - name: 上传未签名便携版
         id: upload-unsigned-portable
         if: matrix.mode == 'portable'
         uses: actions/upload-artifact@v4
@@ -221,7 +221,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign portable artifact
+      - name: 提交便携版签名（SignPath）
         if: matrix.mode == 'portable'
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -235,7 +235,7 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-portable-payload
 
-      - name: Verify signed portable artifact
+      - name: 校验已签名便携版
         if: matrix.mode == 'portable'
         shell: pwsh
         run: |
@@ -281,7 +281,7 @@ jobs:
             Copy-Item (Join-Path $PayloadDir '7z') -Destination $RuntimeDir -Recurse -Force
           }
 
-      - name: Upload portable artifact
+      - name: 上传便携版制品
         if: matrix.mode == 'portable'
         uses: actions/upload-artifact@v4
         with:
@@ -289,7 +289,7 @@ jobs:
           path: signed/YukiHub-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}-portable.zip
           if-no-files-found: error
 
-      - name: Upload unsigned installer payload
+      - name: 上传未签名安装版载荷
         id: upload-unsigned-installer-payload
         if: matrix.mode == 'installer'
         uses: actions/upload-artifact@v4
@@ -299,7 +299,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign installer payload
+      - name: 提交安装版载荷签名（SignPath）
         if: matrix.mode == 'installer'
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -313,7 +313,7 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-payload
 
-      - name: Build installer from signed payload
+      - name: 基于已签名载荷构建安装包
         if: matrix.mode == 'installer'
         shell: pwsh
         run: |
@@ -359,14 +359,14 @@ jobs:
             Copy-Item "build/bin/7z" -Destination $RuntimeDir -Recurse -Force
           }
 
-      - name: Upload update runtime input
+      - name: 上传更新运行时输入
         uses: actions/upload-artifact@v4
         with:
           name: update-runtime-${{ needs.prepare.outputs.version }}-windows-${{ matrix.arch }}-${{ matrix.mode }}
           path: update-runtime/
           if-no-files-found: error
 
-      - name: Upload unsigned installer
+      - name: 上传未签名安装包
         id: upload-unsigned-installer
         if: matrix.mode == 'installer'
         uses: actions/upload-artifact@v4
@@ -376,7 +376,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Sign installer
+      - name: 提交安装包签名（SignPath）
         if: matrix.mode == 'installer'
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -390,7 +390,7 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-installer
 
-      - name: Verify signed installer
+      - name: 校验已签名安装包
         if: matrix.mode == 'installer'
         shell: pwsh
         run: |
@@ -401,7 +401,7 @@ jobs:
             throw "Signed installer artifact not found: $Artifact"
           }
 
-      - name: Upload installer
+      - name: 上传安装包制品
         if: matrix.mode == 'installer'
         uses: actions/upload-artifact@v4
         with:
@@ -410,7 +410,7 @@ jobs:
           if-no-files-found: error
 
   create-prerelease:
-    name: Create Test Update Release
+    name: 创建更新测试版 Release
     needs: [prepare, build-prerelease]
     runs-on: ubuntu-latest
     permissions:
@@ -418,12 +418,12 @@ jobs:
       contents: write
     
     steps:
-      - name: Checkout code
+      - name: 拉取代码
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Go
+      - name: 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -431,7 +431,7 @@ jobs:
             go.sum
             updater/go.sum
 
-      - name: Generate version info
+      - name: 生成版本号
         id: version_info
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
@@ -439,28 +439,28 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "COMMIT=$COMMIT" >> $GITHUB_OUTPUT
 
-      - name: Download all artifacts
+      - name: 下载全部制品
         uses: actions/download-artifact@v4
         with:
           pattern: yukihub-*
           path: ./artifacts
 
-      - name: Download signed update runtime inputs
+      - name: 下载已签名的更新运行时输入
         uses: actions/download-artifact@v4
         with:
           pattern: update-runtime-*
           path: ./update-runtime-artifacts
 
-      - name: Display structure of downloaded files
+      - name: 列出下载到的文件
         run: ls -R ./artifacts
 
-      - name: Prepare release files
+      - name: 整理发布文件
         run: |
           mkdir -p release
           find ./artifacts -type f \( -name "*.zip" -o -name "*.exe" \) -exec cp {} ./release/ \;
           ls -lh ./release
 
-      - name: Download previous update baseline
+      - name: 下载上一版更新基线
         if: needs.prepare.outputs.previous_tag != ''
         env:
           PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
@@ -479,12 +479,12 @@ jobs:
             --include "YukiHub-${PREVIOUS_VERSION}-windows-*-YukiHub.exe.zst" \
             --endpoint-url "$UPDATE_S3_ENDPOINT"
 
-      - name: Install Zstandard CLI
+      - name: 安装 Zstandard 命令行工具
         run: |
           sudo apt-get update
           sudo apt-get install -y zstd
 
-      - name: Generate full and delta update assets
+      - name: 生成全量与增量更新资产
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           PREVIOUS_VERSION: ${{ needs.prepare.outputs.previous_version }}
@@ -509,7 +509,7 @@ jobs:
           go -C updater run ./cmd/yukihub-update-builder "${ARGS[@]}"
           jq empty "update-assets/YukiHub-${VERSION}-update-manifest.json"
 
-      - name: Generate test version source
+      - name: 生成测试版本文件（version.json）
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -531,7 +531,7 @@ jobs:
             "$SOURCE_FILE" > "update-assets/version.json"
           jq empty "update-assets/version.json"
 
-      - name: Upload update assets to S3
+      - name: 上传更新资产到 S3
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           AWS_ACCESS_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID }}
@@ -559,7 +559,7 @@ jobs:
             --cache-control "public,max-age=31536000,immutable" \
             --endpoint-url "$UPDATE_S3_ENDPOINT"
 
-      - name: Get commit messages
+      - name: 收集最近提交信息
         id: get_commits
         env:
           PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
@@ -573,7 +573,7 @@ jobs:
           echo "" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Generate release notes
+      - name: 生成发布说明
         id: release_notes
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -621,7 +621,7 @@ jobs:
 
           cat release_notes.md
 
-      - name: Create Pre-release
+      - name: 创建测试版 Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
