@@ -852,8 +852,11 @@ jobs:
           files: release/*
           body_path: release_notes.md
           draft: false
-          # 显式指定标签：从分支手动发布时标签可能还不存在，由本步骤自动创建并指向本次提交
+          # 显式指定标签：从分支手动发布时标签可能还不存在，由本步骤自动创建。
+          # target_commitish 必须给：不给的话 API 会拿「默认分支的 HEAD」建标签，
+          # 从非 main 分支发布时标签就会指错提交。标签已存在时该参数被忽略。
           tag_name: ${{ needs.validate.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: ${{ steps.get_version.outputs.VERSION }}
           # 只有「预览版」才是 pre-release；标签推送时 channel=release → 正式版
           prerelease: ${{ needs.validate.outputs.channel == 'prerelease' }}
