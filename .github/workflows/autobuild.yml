@@ -449,7 +449,10 @@ jobs:
 
   create-prerelease:
     name: Create pre-release
-    needs: [version, build-windows, build-linux]
+    # **不要**把 build-linux 加进 needs：Linux 打包链依赖 GTK4/WebKitGTK6/nfpm/appimagetool
+    # 与 scripts/patch-wails-linux-tray.sh，任何一环出问题都不应该让 Windows 发布停摆。
+    # Linux 产物是可选增量，下面按「0 个或 3 个」放行。
+    needs: [version, build-windows]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -474,7 +477,22 @@ jobs:
           set -euo pipefail
           mkdir -p release
           find artifacts -maxdepth 1 -type f \( -name '*.zip' -o -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -exec cp {} release/ \;
-          test "$(find release -maxdepth 1 -type f | wc -l | tr -d ' ')" -eq 7
+
+          # Windows 四件套（portable / installer × amd64 / arm64）是发布的硬要求。
+          windows_count="$(find release -maxdepth 1 -type f \( -name '*.zip' -o -name '*.exe' \) | wc -l | tr -d ' ')"
+          test "$windows_count" -eq 4
+
+          # Linux（deb / rpm / AppImage）为可选：build-linux 失败时这里会是 0，
+          # 但只补齐一半（例如只出了 deb）说明产物链异常，仍然拦下。
+          linux_count="$(find release -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) | wc -l | tr -d ' ')"
+          case "$linux_count" in
+            0 | 3) ;;
+            *)
+              echo "Linux 产物数量异常：$linux_count（应为 0 或 3）"
+              exit 1
+              ;;
+          esac
+
           find release -maxdepth 1 -type f -printf '%f\n' | sort
 
       - name: Get recent commits
