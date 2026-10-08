@@ -201,6 +201,19 @@ jobs:
             throw "wails3 version mismatch: expected $Version, found $Installed"
           }
 
+      - name: 校验批处理行尾（.bat 必须 CRLF）
+        # .gitattributes 里 *.bat 是 eol=crlf：cmd.exe 解析 LF-only 的 .bat 会把多行
+        # `( )` 块和 `for /f` 拆错（满屏「'xx' 不是内部或外部命令」），Windows 构建会中途挂掉。
+        shell: pwsh
+        run: |
+          $bad = @(Get-ChildItem scripts/*.bat | Where-Object {
+            -not (Get-Content -LiteralPath $_.FullName -Raw).Contains([char]13)
+          })
+          if ($bad.Count -gt 0) {
+            throw "以下批处理文件不是 CRLF 行尾：$($bad.Name -join ', ')。请检查 .gitattributes 的 *.bat text eol=crlf 规则并重新检出。"
+          }
+          Write-Host "scripts/*.bat 均为 CRLF 行尾 · OK"
+
       - name: 构建便携版
         if: matrix.mode == 'portable'
         shell: pwsh

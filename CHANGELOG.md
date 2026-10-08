@@ -78,6 +78,11 @@
 
 ### 修复（选）
 
+- **Windows 打包一开始就失败**：`scripts/*.bat` 被 `.gitattributes` 的
+  `* text=auto eol=lf` 规范成了 LF，而 `cmd.exe` 解析 LF-only 的 `.bat` 会把多行
+  `( )` 块和 `for /f` 拆错（满屏「`'xx'` 不是内部或外部命令」），Windows 便携版 /
+  安装版构建刚起步就退出。修复：`.gitattributes` 增加 `*.bat` / `*.cmd` →
+  `text eol=crlf`，并在两个发布流水线的 Windows 作业里加了行尾校验（不对就早退并报错）
 - 消息顺序错乱：消息 id 是纯数字字符串，原先按字典序排序（`"9" > "1000"`）
   导致整个列表错位，改为按时间 + 数值 id
 - 图标大面积不可见：UnoCSS 图标是 mask + `width/height:1em`，放在 `<span>`

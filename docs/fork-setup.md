@@ -163,6 +163,12 @@ Release，也不写稳定更新通道，产物只落在本次运行的 **Artifac
 `release.yml` 的 Windows 与 Linux **仍然不互相阻塞**：`create-release` 只依赖
 `build-release`，Linux 链路出问题不会让正式版发不出去（产物按「0 个或 3 个」放行）。
 
+> **批处理文件必须用 CRLF**：`.gitattributes` 的 `* text=auto eol=lf` 会把所有文件规范成
+> LF，但 `cmd.exe` 解析 **LF-only 的 `.bat`** 时会把多行 `( )` 块和 `for /f` 拆错
+> （满屏「`'xx'` 不是内部或外部命令」），Windows 打包会中途静默失败。因此
+> `.gitattributes` 里额外有 `*.bat / *.cmd → text eol=crlf`；两个发布流水线也会在
+> 构建前校验行尾，行尾不对直接报错而不是白等一轮构建。
+
 ## 6. 品牌素材（待替换）
 
 以下位置仍是上游占位素材，需要替换为 YukiHub 素材：
@@ -178,7 +184,8 @@ Release，也不写稳定更新通道，产物只落在本次运行的 **Artifac
 
 ## 7. 版本号
 
-- 版本号由构建期从 git tag 注入（`v0.1.0` → `0.1.0`）。
+- 版本号由构建期注入：默认取自 git tag（`v0.1.0` → `0.1.0`），
+  手动发布时也可以在 `release.yml` 的 `version` 输入里直接指定。
 - 需要同步维护的地方：
   - `build/config.yml` 的 `info.version`
   - `build/windows/info.json`、`build/windows/nsis/wails_tools.nsh`

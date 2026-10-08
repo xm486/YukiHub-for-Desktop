@@ -1,5 +1,11 @@
 * text=auto eol=lf
 
+# Windows 批处理必须用 CRLF 检出：cmd.exe 解析 LF-only 的 .bat 会把多行 `( )` 块
+# 和 `for /f` 拆错，表现为一堆「'xx' 不是内部或外部命令」并中途退出 ——
+# CI 的 Windows 打包（scripts/build.bat）就栽在这上面。这条必须放在 `*` 规则之后。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
 # 内置的第三方兼容工具（Locale Emulator / Magpie）必须保持上游发布时的原样，
 # 因此不做行尾转换、也不做 diff —— 否则「未修改分发」的合规声明就不成立了。
 build/compat-tools/** -text -diff
