@@ -95,6 +95,24 @@
 
 ### 修复（选）
 
+- **Windows 安装版构建失败：`build.bat` 还在要求已下线的 CLI**
+  （`ERROR: Missing installer CLI payload: ...\yukihubcli.exe`）。
+  删 CLI 那次只清了构建步骤与载荷打包，漏了 `:build_installer_package` 里
+  对 `yukihubcli.exe` 的存在性校验与拷贝 —— 于是 `installer` / `all` /
+  流水线的 `installer-package` 三种模式**都会在打包前直接退出**，
+  `YukiHubUpdater.exe` 的提示顺带改成不再声称"signed"（签名现在是可选的）
+- **Windows 矩阵关掉 fail-fast**：任一组合作业失败会连坐取消其它
+  平台/形态（arm64 就一直是被取消后伪装成失败），导致
+  「便携版明明构建成功却拿不到产物」，也让日志里的真正失败点被淹没。
+  发布作业仍要求所有勾选平台成功，不会放行半成品
+- **`scripts/build.bat` 改为纯 ASCII**：cmd.exe 按系统 ANSI 代码页解析 `.bat`，
+  里面的中文注释在多字节代码页下属于隐患，已全部换成英文（含两处既存注释）
+- **`scripts/build.sh` 的过时提示**：仍打印 `Building GUI and CLI...`，实际只构建 GUI
+- **清理 CLI 遗留**：删除 `skills/yukihub/`（整份技能都在教 AI 调用已下线的
+  `yukihubcli`，未被执行任何代码/流水线引用）；`i18next.config.ts` 的
+  `preservePatterns` 里 `settings.portableSetup.toast.*` 这条通配把 4 个 CLI 死键
+  （`cliRegistered` / `cliUnregistered` / `cliRegisterFailed` / `cliUnregisterFailed`）
+  一并保住了，收窄成实际需要的两个动态键后由 `i18n:clean` 清掉
 - **未配置代码签名导致 Windows 打包全挂**：三个流水线都无条件提交 SignPath 签名，
   而本仓库没有 SignPath 资格（`organization-id` 为空），签名步骤直接报
   `Input required and not supplied: organization-id` 失败（arm64 是被 fail-fast 连坐取消的）。

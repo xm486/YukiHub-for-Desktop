@@ -153,6 +153,29 @@ YukiHub Desktop 是 YukiHub 项目的桌面版本（Windows / Linux amd64）。
   同时移除只指向 Gitee 的下载按钮（`downloads.gitee` 不再产生）。
 - 移除 `getUpdateURLs` / `defaultUpdateURLs`：填充源改为托管平台后它们不再被调用。
 
+### 2026-10-09 — 修复 Windows 安装版构建（上游 `build.bat` 的 CLI 残留）
+
+Windows 安装版在 CI 上直接退出，报
+`ERROR: Missing installer CLI payload: ...\build\windows\payload\amd64\yukihubcli.exe`。
+编译与便携版都是好的，卡在打包前的前置校验。
+
+- `scripts/build.bat` 的 `:build_installer_package` 仍在校验并拷贝
+  **`yukihubcli.exe`**。上游 LunaBox 的载荷里确实带 CLI（`lunacli.exe`），
+  我们是后来把 CLI 整条链路下线时才删掉构建步骤与载荷打包的，
+  这里的校验被漏掉 —— 结果是 `installer` / `all` 模式与流水线的
+  `installer-package` 三种入口**都会在 NSIS 之前就退出**。已移除该校验与拷贝；
+  `YukiHubUpdater.exe` 的提示也不再声称 "signed"（签名现在是可选的）
+- `scripts/build.bat` 改为**纯 ASCII**：`cmd.exe` 按系统 ANSI 代码页解析批处理，
+  中文注释在多字节代码页下属于隐患，连上游带来的两处注释也一并换成英文
+- `scripts/build.sh` 的过时提示 `Building GUI and CLI...` 改为 `Building GUI...`
+  （该函数实际只构建 GUI 二进制）
+- Windows 矩阵 `strategy.fail-fast` 改为 `false`：见 `docs/fork-setup.md` 第 5 节
+- 清理 CLI 残留：删除 `skills/yukihub/`（教 AI 调用已下线的 `yukihubcli`，
+  未被任何代码或流水线引用）；`frontend/i18next.config.ts` 的 `preservePatterns`
+  里 `settings.portableSetup.toast.*` 通配收窄成两个真正动态引用的键，
+  顺带清掉 `cliRegistered` / `cliUnregistered` / `cliRegisterFailed` /
+  `cliUnregisterFailed` 四个死键
+
 ### 尚未修改、计划修改
 
 - 产品界面与交互仍为上游形态，尚未替换为 YukiHub 的视觉与信息架构。

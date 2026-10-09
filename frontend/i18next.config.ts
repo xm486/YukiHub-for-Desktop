@@ -23,7 +23,9 @@ export default defineConfig({
       "friendsChat.section.*",
       "friendsChat.status.*",
       "gameStats.periodStatsLabel.*",
-      "settings.portableSetup.toast.*",
+      // 这两个失败提示把键名当字符串传给 run()，提取器看不到（成功提示是字面量）
+      "settings.portableSetup.toast.protocolRegisterFailed",
+      "settings.portableSetup.toast.protocolUnregisterFailed",
       "metadataUpdateFields.*",
       "settings.appearance.gameCardLayout_*",
       // 快捷键的文案键由 GLOBAL_SHORTCUTS 的 id 拼出来，提取器看不到

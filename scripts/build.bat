@@ -373,7 +373,8 @@ if defined DUCKDB_DLL copy /Y "!DUCKDB_DLL!" "!PORTABLE_DIR!\duckdb.dll" >nul
 mkdir "!PORTABLE_DIR!\7z"
 copy /Y "!SEVENZIP_SOURCE_DIR!\7z.exe" "!PORTABLE_DIR!\7z\7z.exe" >nul
 copy /Y "!SEVENZIP_SOURCE_DIR!\7z.dll" "!PORTABLE_DIR!\7z\7z.dll" >nul
-REM 内置的转区 / 超分工具（第三方程序，随包分发，见 compat-tools\SOURCE.txt）
+REM Bundled locale switcher / upscaler tools (third-party programs, redistributed
+REM as-is, see compat-tools\SOURCE.txt)
 if exist "build\compat-tools" (
     xcopy /E /I /Y "build\compat-tools" "!PORTABLE_DIR!\compat-tools" >nul
 )
@@ -406,7 +407,8 @@ mkdir "!SEVENZIP_BUILD_DIR!"
 copy /Y "!SEVENZIP_SOURCE_DIR!\7z.exe" "!SEVENZIP_BUILD_DIR!\7z.exe" >nul
 copy /Y "!SEVENZIP_SOURCE_DIR!\7z.dll" "!SEVENZIP_BUILD_DIR!\7z.dll" >nul
 
-REM 内置的转区 / 超分工具（第三方程序，随包分发，见 compat-tools\SOURCE.txt）
+REM Bundled locale switcher / upscaler tools (third-party programs, redistributed
+REM as-is, see compat-tools\SOURCE.txt)
 if exist "%CD%\build\compat-tools" (
     if exist "%WINDOWS_PAYLOAD_DIR%\compat-tools" rmdir /s /q "%WINDOWS_PAYLOAD_DIR%\compat-tools"
     xcopy /E /I /Y "%CD%\build\compat-tools" "%WINDOWS_PAYLOAD_DIR%\compat-tools" >nul
@@ -461,16 +463,12 @@ if not exist "!WINDOWS_PAYLOAD_DIR!\YukiHub.exe" (
     echo ERROR: Missing installer GUI payload: !WINDOWS_PAYLOAD_DIR!\YukiHub.exe
     exit /b 1
 )
-if not exist "!WINDOWS_PAYLOAD_DIR!\yukihubcli.exe" (
-    echo ERROR: Missing installer CLI payload: !WINDOWS_PAYLOAD_DIR!\yukihubcli.exe
-    exit /b 1
-)
+REM The yukihubcli command line tool was removed as a product decision, so the
+REM installer payload now contains only the GUI and the standalone updater.
 if not exist "build\bin\YukiHubUpdater.exe" (
-    echo ERROR: Missing signed standalone updater: build\bin\YukiHubUpdater.exe
+    echo ERROR: Missing standalone updater: build\bin\YukiHubUpdater.exe
     exit /b 1
 )
-copy /Y "!WINDOWS_PAYLOAD_DIR!\yukihubcli.exe" "build\bin\yukihubcli.exe" >nul
-if errorlevel 1 exit /b 1
 call :prepare_installer_runtime
 if errorlevel 1 exit /b 1
 

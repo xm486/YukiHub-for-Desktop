@@ -1151,11 +1151,7 @@
         "protocolRegistered": "yukihub:// protocol registered",
         "protocolUnregistered": "yukihub:// protocol unregistered",
         "protocolRegisterFailed": "Failed to register protocol: {{error}}",
-        "protocolUnregisterFailed": "Failed to unregister protocol: {{error}}",
-        "cliRegistered": "yukihubcli added to PATH",
-        "cliUnregistered": "yukihubcli removed from PATH",
-        "cliRegisterFailed": "Failed to add to PATH: {{error}}",
-        "cliUnregisterFailed": "Failed to remove from PATH: {{error}}"
+        "protocolUnregisterFailed": "Failed to unregister protocol: {{error}}"
       }
     },
     "appData": {

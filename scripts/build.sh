@@ -305,7 +305,7 @@ if [[ "$HOST_OS" == "Linux" ]]; then
 
     build_linux_binaries() {
         local ldflags="$1"
-        echo "[linux] Building GUI and CLI..."
+        echo "[linux] Building GUI..."
         mkdir -p "$BIN_DIR"
         GOOS=linux GOARCH="$TARGET_ARCH" CGO_ENABLED=1 \
             go build -tags "$GO_BUILD_TAGS" -trimpath -buildvcs=false -ldflags "$ldflags" -o "$APP_BINARY" .

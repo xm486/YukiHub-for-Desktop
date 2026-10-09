@@ -1151,11 +1151,7 @@
         "protocolRegistered": "yukihub:// 协议注册成功",
         "protocolUnregistered": "已取消 yukihub:// 协议注册",
         "protocolRegisterFailed": "协议注册失败：{{error}}",
-        "protocolUnregisterFailed": "协议取消注册失败：{{error}}",
-        "cliRegistered": "已把 yukihubcli 加入 PATH",
-        "cliUnregistered": "已从 PATH 移除 yukihubcli",
-        "cliRegisterFailed": "添加 PATH 失败：{{error}}",
-        "cliUnregisterFailed": "移除 PATH 失败：{{error}}"
+        "protocolUnregisterFailed": "协议取消注册失败：{{error}}"
       }
     },
     "appData": {

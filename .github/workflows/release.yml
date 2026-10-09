@@ -176,7 +176,11 @@ jobs:
       actions: read
       contents: read
     strategy:
-      fail-fast: true
+      # 关掉 fail-fast：任一组合失败不该连坐取消其它平台/形态 ——
+      # 否则「便携版明明好了、却因为安装版挂了而拿不到产物」，
+      # 而且日志里被取消的作业会伪装成失败，掩盖真正的失败点。
+      # create-release 仍然要求所有勾选平台都成功，所以不会放行半成品。
+      fail-fast: false
       matrix:
         include:
           - arch: amd64

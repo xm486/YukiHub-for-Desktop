@@ -168,11 +168,21 @@ Release，也不写稳定更新通道，产物只落在本次运行的 **Artifac
 `release.yml` 的 Windows 与 Linux **仍然不互相阻塞**：`create-release` 只依赖
 `build-release`，Linux 链路出问题不会让正式版发不出去（产物按「0 个或 3 个」放行）。
 
+Windows 矩阵的 `strategy.fail-fast` 是 **`false`**：任一组合作业失败不会连坐取消
+其它平台/形态。否则「便携版已经构建成功，却因为安装版挂了而拿不到产物」，
+而且被取消的作业在日志里会伪装成失败、掩盖真正的失败点。发布作业仍然要求
+所有勾选平台成功，所以不会放行半成品。
+
 > **批处理文件必须用 CRLF**：`.gitattributes` 的 `* text=auto eol=lf` 会把所有文件规范成
 > LF，但 `cmd.exe` 解析 **LF-only 的 `.bat`** 时会把多行 `( )` 块和 `for /f` 拆错
 > （满屏「`'xx'` 不是内部或外部命令」），Windows 打包会中途静默失败。因此
 > `.gitattributes` 里额外有 `*.bat / *.cmd → text eol=crlf`；两个发布流水线也会在
 > 构建前校验行尾，行尾不对直接报错而不是白等一轮构建。
+
+> **`.`bat` 里不要放非 ASCII 字符**：`cmd.exe` 按系统 ANSI 代码页（简中是 GBK）
+> 逐行解析批处理，UTF-8 的中文注释会在 GBK 下被拆成乱码字节，
+> 有触发「找不到批处理标签」这类诡异解析错误的风险。`scripts/*.bat` 现在
+> 保持**纯 ASCII**（注释一律用英文），`scripts/build.sh` 不受影响。
 
 ## 6. 品牌素材（待替换）
 
