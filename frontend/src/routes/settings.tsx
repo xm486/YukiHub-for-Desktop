@@ -342,7 +342,7 @@ function SettingsPage() {
         <button
           type="button"
           onClick={() =>
-            void Browser.OpenURL("https://github.com/xm486/YukiHub")}
+            void Browser.OpenURL("https://github.com/xm486/YukiHub-for-Desktop")}
           className="mt-6 inline-flex items-center justify-center gap-2 rounded-full border border-primary-200/70 bg-white/70 px-4 py-2 text-sm font-semibold text-brand-700 transition-colors hover:bg-white dark:border-primary-300/40 dark:bg-[#1D2B3E]/70 dark:text-white/90 dark:hover:bg-[#1D2B3E]"
         >
           <div className="i-mdi-github text-xl" />

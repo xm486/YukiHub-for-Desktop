@@ -90,7 +90,8 @@ YukiHub Desktop 是 YukiHub 项目的桌面版本（Windows / Linux amd64）。
   `internal/version.AppDisplayName` 仍是唯一来源，并按 `AGENTS.md` 的约定收口了散落的
   硬编码：移除四语言文件里的 `settings.about.appName`（关于面板直接显示后端返回的
   `appName`），许可证正文与设置页页脚也不再各自复述产品名。
-  **仓库名 `YukiHub-for-Windows` 与 git 远端地址保持不变**（改显示名不动链接）。
+  仓库名与 git 远端地址当时保持不变（改显示名不动链接）；该仓库已于 2026-10-09
+  更名为 `YukiHub-for-Desktop`，见下一条记录。
 - `autobuild.yml` / `release.yml` 的发布作业不再 `needs: build-linux`：Linux 打包失败
   不再阻断 Windows 的预发布与正式发布。产物校验由「必须 7 个」改为「Windows 四件套
   必须齐全，Linux 三件套为可选增量（0 个或 3 个）」。
@@ -106,6 +107,26 @@ YukiHub Desktop 是 YukiHub 项目的桌面版本（Windows / Linux amd64）。
   重复检测漏判；已补回并加回归测试。
 - 重新生成 `frontend/bindings` 并提交，使其与生成器输出严格一致
   （重跑 `wails3 generate bindings -clean=true -ts` 应为零差异）。
+
+### 2026-10-09 — 仓库更名为 YukiHub for Desktop，补齐漏替换的仓库链接
+
+- 仓库由 `YukiHub-for-Windows` 更名为 **`YukiHub-for-Desktop`**（GitHub 与 GitCode 同名，
+  旧地址由平台 301 重定向）。产品定位与显示名未变：Windows 10/11 与 Linux amd64 桌面端，
+  `internal/version.AppDisplayName` 仍为 `YukiHub Desktop`。
+- 补齐建独立仓库时漏掉的一批链接替换。下列值的语义都是「**本仓库地址**」，
+  原先却指向 Android 手机版仓库 `xm486/YukiHub`（`docs/fork-setup.md` 早就写明
+  「若新建独立仓库，需全局替换」，当时只换了 README）：
+  - `internal/version.RepositoryURL`（关于面板与 `GetVersionInfo` 的 `repo` 字段）
+  - `internal/version` 中 User-Agent 尾部的仓库 URL
+  - 设置页「开源仓库」按钮（`routes/settings.tsx`）
+  - Linux 包元数据 `build/linux/nfpm/nfpm.yaml` 的 `homepage`
+  - `sync/version.json` 的 `downloads.github`
+- 文档与合规材料里的 `YukiHub for Windows` 统一为 `YukiHub for Desktop`：
+  `NOTICE` 首行与修改声明、ADR-0001 标题、`AGENTS.md` 项目身份段、
+  `sync/version.json` 的 changelog。
+- **User-Agent 前缀（`xm486/YukiHub/<版本>`）保持不变**：它是发往第三方服务的客户端
+  标识，服务端可能据此识别与限流，改动风险大于收益；UA 尾部仍带 `(desktop)` 以区分两端。
+- 本地工作目录同步更名为 `YukiHub for Desktop`。
 
 ### 尚未修改、计划修改
 

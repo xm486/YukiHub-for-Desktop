@@ -1,4 +1,4 @@
-# ADR-0001：以 LunaBox 硬分叉作为 YukiHub for Windows 的基线
+# ADR-0001：以 LunaBox 硬分叉作为 YukiHub for Desktop 的基线
 
 - 状态：已采纳
 - 日期：2026-09-27

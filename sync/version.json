@@ -3,7 +3,7 @@
   "release_date": "2026-09-27",
   "changelog": [
     "首个开发版本",
-    "- 以 LunaBox v1.13.0 为基线建立 YukiHub for Windows 硬分叉，保留其 Windows 进程识别、游玩计时、Locale Emulator、Magpie、托盘、协议唤醒、安装器与应用内更新能力",
+    "- 以 LunaBox v1.13.0 为基线建立 YukiHub for Desktop 硬分叉，保留其 Windows 进程识别、游玩计时、Locale Emulator、Magpie、托盘、协议唤醒、安装器与应用内更新能力",
     "- 完成去品牌化：应用标识、数据目录、URL 协议、安装包与构建流程统一为 YukiHub",
     "- 默认云备份后端调整为 WebDAV，不再默认指向与上游绑定的托管服务",
     "- 接口层保留对手机版 YukiHub 备份格式的导入能力，作为移动端数据迁移通道",
@@ -11,6 +11,6 @@
     "- 产品界面、领域模型与手机版差异化能力（同步协议、社区、OCR 翻译、离线展厅）尚未完成，正在开发中"
   ],
   "downloads": {
-    "github": "https://github.com/xm486/YukiHub/releases"
+    "github": "https://github.com/xm486/YukiHub-for-Desktop/releases"
   }
 }

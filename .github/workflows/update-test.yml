@@ -1,4 +1,4 @@
-# 应用内更新链路验证（自上游 LunaBox 继承，YukiHub for Windows 需重新配置后使用）。
+# 应用内更新链路验证（自上游 LunaBox 继承，YukiHub for Desktop 需重新配置后使用）。
 #
 # 触发方式：仅手动 workflow_dispatch。
 #

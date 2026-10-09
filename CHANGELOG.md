@@ -50,6 +50,12 @@
 
 ### 变更
 
+- **仓库更名为 `YukiHub for Desktop`**（`xm486/YukiHub-for-Desktop`，GitHub 与 GitCode 同名，
+  旧地址由平台 301 重定向）。同时补齐建独立仓库时漏掉的一批「本仓库地址」链接：
+  关于面板的 `RepositoryURL`、User-Agent 尾部 URL、设置页「开源仓库」按钮、
+  Linux 包元数据 `homepage`、`sync/version.json` 的 `downloads.github` —— 原先都指向
+  Android 手机版仓库 `xm486/YukiHub`。文档与合规材料里的 `YukiHub for Windows`
+  统一为 `YukiHub for Desktop`（User-Agent 前缀保持 `xm486/YukiHub/` 不变）
 - 设置页瘦身：删除代理、键盘快捷键、CLI 与 MCP（桌面版不需要），
   备份收敛为本地自动备份；新增「当前资料源」；账户区只保留第三方授权
 - 游戏详情页：删除与 NSFW 入口上移到顶部操作区（原先在编辑页最底部）

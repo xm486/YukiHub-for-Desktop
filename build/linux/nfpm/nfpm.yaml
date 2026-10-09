@@ -7,7 +7,7 @@ priority: "optional"
 maintainer: "${MAINTAINER}"
 description: "YukiHub game library manager"
 vendor: "YukiHub"
-homepage: "https://github.com/xm486/YukiHub"
+homepage: "https://github.com/xm486/YukiHub-for-Desktop"
 license: "AGPL-3.0"
 release: "1"
 

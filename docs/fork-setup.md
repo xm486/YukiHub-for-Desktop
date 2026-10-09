@@ -7,13 +7,13 @@
 
 | 项目 | 当前占位值 | 需要确认 |
 | --- | --- | --- |
-| 仓库地址 | `https://github.com/xm486/YukiHub` | 确认桌面版是复用该仓库还是新建独立仓库；若新建，需全局替换 |
+| 仓库地址 | `https://github.com/xm486/YukiHub-for-Desktop` | 桌面版为独立仓库（GitHub / GitCode 同名），与 Android 手机版 `xm486/YukiHub` 分开 |
 | 应用标识 | `com.yukihub.desktop` | 确认命名空间符合预期（安装路径、单实例 ID、注册表协议键均依赖它） |
 | URL 协议 | `yukihub://` | 若与 Android 版协议冲突需重新选定 |
 | 用户数据目录 | `%APPDATA%\YukiHub`、`%LOCALAPPDATA%\YukiHub` | 确认与 Android 版不冲突（Android 为应用私有目录，不冲突） |
 
 涉及文件中已统一使用该标识，如需变更请全局搜索：
-`com.yukihub.desktop`、`yukihub://`、`xm486/YukiHub`。
+`com.yukihub.desktop`、`yukihub://`、`xm486/YukiHub-for-Desktop`。
 
 ## 2. 第三方服务凭据（必须自行申请）
 
@@ -222,7 +222,7 @@ gofmt -l . && go vet ./... && go test ./... -count=1
 wails3 build
 ```
 
-> 注意：仓库目录名包含空格（`YukiHub for Windows`），部分脚本对含空格路径敏感。
+> 注意：仓库目录名包含空格（`YukiHub for Desktop`），部分脚本对含空格路径敏感。
 > 如果构建脚本报路径错误，可把仓库检出到无空格路径下（例如 `D:\work\yukihub`）。
 
 ## 9. Linux 构建（deb / rpm / AppImage）

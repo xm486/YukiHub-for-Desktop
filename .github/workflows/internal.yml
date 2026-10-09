@@ -105,7 +105,7 @@ jobs:
 
       - name: 运行测试（go test）
         # 上游这一步是 go test -run '^$' ./internal/...，只编译、不执行任何用例。
-        # YukiHub for Windows 要求测试真实执行，否则重构与裁剪没有任何安全网。
+        # YukiHub for Desktop 要求测试真实执行，否则重构与裁剪没有任何安全网。
         run: go test ./... -count=1
 
       - name: 运行 updater 模块测试

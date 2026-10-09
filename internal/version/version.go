@@ -4,7 +4,7 @@ import "strings"
 
 const (
 	userAgentPrefix = "xm486/YukiHub/"
-	userAgentSuffix = " (desktop) (https://github.com/xm486/YukiHub)"
+	userAgentSuffix = " (desktop) (https://github.com/xm486/YukiHub-for-Desktop)"
 )
 
 // 产品与来源信息。
@@ -14,7 +14,7 @@ const (
 const (
 	AppDisplayName  = "YukiHub Desktop"
 	LicenseName     = "AGPL-3.0"
-	RepositoryURL   = "https://github.com/xm486/YukiHub"
+	RepositoryURL   = "https://github.com/xm486/YukiHub-for-Desktop"
 	UpstreamProject = "LunaBox"
 	UpstreamVersion = "v1.13.0"
 	UpstreamRepoURL = "https://github.com/Saramanda9988/LunaBox"

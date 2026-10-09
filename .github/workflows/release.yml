@@ -1,4 +1,4 @@
-# 发布流水线（自上游 LunaBox 继承，YukiHub for Windows 需重新配置后使用）。
+# 发布流水线（自上游 LunaBox 继承，YukiHub for Desktop 需重新配置后使用）。
 #
 # 触发方式：推送 v*.*.* 标签，或手动 workflow_dispatch。
 #

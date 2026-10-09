@@ -25,8 +25,8 @@ YukiHub 有两个端：
 | 端 | 仓库 | 许可证 |
 | --- | --- | --- |
 | Android 手机版 | https://github.com/xm486/YukiHub | GPL-3.0 |
-| 桌面版（本仓库，Windows / Linux） | https://github.com/xm486/YukiHub-for-Windows | AGPL-3.0 |
-| 桌面版（GitCode 托管） | https://gitcode.com/xm486/YukiHub-for-Windows | AGPL-3.0 |
+| 桌面版（本仓库，Windows / Linux） | https://github.com/xm486/YukiHub-for-Desktop | AGPL-3.0 |
+| 桌面版（GitCode 托管） | https://gitcode.com/xm486/YukiHub-for-Desktop | AGPL-3.0 |
 
 桌面版同时托管在 GitHub 与 GitCode（国内代码托管平台）两个平台，两边内容一致。
 

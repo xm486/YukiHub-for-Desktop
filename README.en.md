@@ -15,8 +15,8 @@ YukiHub has two ends:
 | End | Repository | License |
 | --- | --- | --- |
 | Android | https://github.com/xm486/YukiHub | GPL-3.0 |
-| Desktop (this repository, Windows / Linux) | https://github.com/xm486/YukiHub-for-Windows | AGPL-3.0 |
-| Desktop (hosted on GitCode) | https://gitcode.com/xm486/YukiHub-for-Windows | AGPL-3.0 |
+| Desktop (this repository, Windows / Linux) | https://github.com/xm486/YukiHub-for-Desktop | AGPL-3.0 |
+| Desktop (hosted on GitCode) | https://gitcode.com/xm486/YukiHub-for-Desktop | AGPL-3.0 |
 
 The desktop edition is hosted on both GitHub and GitCode (a China-based code
 hosting platform); both copies are kept in sync.

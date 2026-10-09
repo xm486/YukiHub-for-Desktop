@@ -1,4 +1,4 @@
-# Nightly 预发布构建（自上游 LunaBox 继承，YukiHub for Windows 需重新配置后使用）。
+# Nightly 预发布构建（自上游 LunaBox 继承，YukiHub for Desktop 需重新配置后使用）。
 #
 # 触发方式：仅手动 workflow_dispatch。
 #
