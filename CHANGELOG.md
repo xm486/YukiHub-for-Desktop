@@ -78,6 +78,16 @@
 
 ### 修复（选）
 
+- **未配置代码签名导致 Windows 打包全挂**：三个流水线都无条件提交 SignPath 签名，
+  而本仓库没有 SignPath 资格（`organization-id` 为空），签名步骤直接报
+  `Input required and not supplied: organization-id` 失败（arm64 是被 fail-fast 连坐取消的）。
+  现改为**签名可选**：只有配了 `vars.SIGNPATH_ORGANIZATION_ID` 才提交签名，
+  否则跳过并直接产出未签名产物，走同一套上传路径
+- **`release.yml` 的 Windows 步骤被拼坏**：安装版载荷那步里混进了便携版收尾逻辑，
+  `throw "...".Stop"` 少了闭合 `}` 与引号（PowerShell 直接语法错），且缺便携版的
+  未签名上传 / 签名 / 收尾三步 —— 已按 `autobuild.yml` 的正确结构重排
+- **`$SignedCli` 引用未定义变量**：CLI 早已删除，三个流水线的「基于已签名载荷构建安装包」
+  仍在校验 `$SignedCli`，签名一旦配通也会立刻炸 —— 已移除
 - **Windows 打包一开始就失败**：`scripts/*.bat` 被 `.gitattributes` 的
   `* text=auto eol=lf` 规范成了 LF，而 `cmd.exe` 解析 LF-only 的 `.bat` 会把多行
   `( )` 块和 `for /f` 拆错（满屏「`'xx'` 不是内部或外部命令」），Windows 便携版 /

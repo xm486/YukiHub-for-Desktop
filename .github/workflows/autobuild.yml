@@ -2,7 +2,8 @@
 #
 # 触发方式：仅手动 workflow_dispatch。
 #
-# 依赖与 release.yml 相同的 Variables / Secrets，并额外依赖 SignPath 签名配置。
+# 依赖与 release.yml 相同的 Variables / Secrets；SignPath 签名可选（未配 SIGNPATH_* 就跳过，
+# 产出未签名产物）。
 # 在上线自建更新服务之前，不要在本仓库启用定时触发，否则会产生无法消费的构建产物。
 name: 开发版快照（dev-latest）
 
@@ -283,7 +284,9 @@ jobs:
           retention-days: 1
 
       - name: 提交便携版签名（SignPath）
-        if: matrix.mode == 'portable'
+        # 未配置 SignPath（本仓库默认）时跳过：产物不带签名，但照常打包上传。
+        # 想启用签名：配好仓库 Variables 的 SIGNPATH_* 即可，无需改本文件。
+        if: matrix.mode == 'portable' && vars.SIGNPATH_ORGANIZATION_ID != ''
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -296,30 +299,41 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed
 
-      - name: 校验已签名便携版
+      - name: 准备便携版制品
         if: matrix.mode == 'portable'
         shell: pwsh
+        env:
+          SIGNING_ENABLED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $Artifact = 'signed/YukiHub-${{ needs.version.outputs.version }}-windows-${{ matrix.arch }}-portable.zip'
-          if (!(Test-Path -LiteralPath $Artifact)) {
-            throw "Signed portable artifact not found: $Artifact"
-          }
+          $Version = '${{ needs.version.outputs.version }}'
+          $Arch = '${{ matrix.arch }}'
+          $Artifact = "signed/YukiHub-$Version-windows-$Arch-portable.zip"
+          $Unsigned = "build/bin/YukiHub-$Version-windows-$Arch-portable.zip"
 
-          $ExtractDir = Join-Path $env:RUNNER_TEMP 'yukihub-signed-portable-check'
-          if (Test-Path -LiteralPath $ExtractDir) {
-            Remove-Item -LiteralPath $ExtractDir -Recurse -Force
-          }
-          Expand-Archive -LiteralPath $Artifact -DestinationPath $ExtractDir -Force
-          foreach ($Name in @('YukiHub.exe', 'YukiHubUpdater.exe')) {
-            $SignedFile = Get-ChildItem -Path $ExtractDir -Filter $Name -Recurse -File | Select-Object -First 1
-            if ($null -eq $SignedFile) {
-              throw "Signed portable artifact is missing $Name."
+          if ($env:SIGNING_ENABLED -eq 'true') {
+            if (!(Test-Path -LiteralPath $Artifact)) {
+              throw "Signed portable artifact not found: $Artifact"
             }
-            $Signature = Get-AuthenticodeSignature $SignedFile.FullName
-            if ($Signature.Status -ne 'Valid') {
-              throw "$Name does not have a valid Authenticode signature: $($Signature.Status)"
+            $ExtractDir = Join-Path $env:RUNNER_TEMP 'yukihub-signed-portable-check'
+            if (Test-Path -LiteralPath $ExtractDir) {
+              Remove-Item -LiteralPath $ExtractDir -Recurse -Force
             }
+            Expand-Archive -LiteralPath $Artifact -DestinationPath $ExtractDir -Force
+            foreach ($Name in @('YukiHub.exe', 'YukiHubUpdater.exe')) {
+              $SignedFile = Get-ChildItem -Path $ExtractDir -Filter $Name -Recurse -File | Select-Object -First 1
+              if ($null -eq $SignedFile) {
+                throw "Signed portable artifact is missing $Name."
+              }
+              $Signature = Get-AuthenticodeSignature $SignedFile.FullName
+              if ($Signature.Status -ne 'Valid') {
+                throw "$Name does not have a valid Authenticode signature: $($Signature.Status)"
+              }
+            }
+          } else {
+            New-Item -ItemType Directory -Force -Path 'signed' | Out-Null
+            Copy-Item -LiteralPath $Unsigned -Destination $Artifact -Force
+            Write-Host "SignPath 未配置：跳过签名，使用未签名便携版 $Artifact"
           }
 
       - name: 上传便携版制品
@@ -341,7 +355,7 @@ jobs:
           retention-days: 1
 
       - name: 提交安装版载荷签名（SignPath）
-        if: matrix.mode == 'installer'
+        if: matrix.mode == 'installer' && vars.SIGNPATH_ORGANIZATION_ID != ''
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -354,26 +368,34 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-payload
 
-      - name: 基于已签名载荷构建安装包
+      - name: 基于（可能已签名的）载荷构建安装包
         if: matrix.mode == 'installer'
         shell: pwsh
+        env:
+          SIGNING_ENABLED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $SignedGui = 'signed-payload/YukiHub.exe'
-          $SignedUpdater = 'signed-payload/YukiHubUpdater.exe'
-          if (!(Test-Path -LiteralPath $SignedGui) -or !(Test-Path -LiteralPath $SignedCli) -or !(Test-Path -LiteralPath $SignedUpdater)) {
-            throw 'Signed installer payload must contain YukiHub.exe and YukiHubUpdater.exe.'
-          }
-          foreach ($Path in @($SignedGui, $SignedCli, $SignedUpdater)) {
-            $Signature = Get-AuthenticodeSignature $Path
-            if ($Signature.Status -ne 'Valid') {
-              throw "$(Split-Path $Path -Leaf) does not have a valid Authenticode signature: $($Signature.Status)"
+          if ($env:SIGNING_ENABLED -eq 'true') {
+            $Gui = 'signed-payload/YukiHub.exe'
+            $Updater = 'signed-payload/YukiHubUpdater.exe'
+            if (!(Test-Path -LiteralPath $Gui) -or !(Test-Path -LiteralPath $Updater)) {
+              throw 'Signed installer payload must contain YukiHub.exe and YukiHubUpdater.exe.'
             }
+            foreach ($Path in @($Gui, $Updater)) {
+              $Signature = Get-AuthenticodeSignature $Path
+              if ($Signature.Status -ne 'Valid') {
+                throw "$(Split-Path $Path -Leaf) does not have a valid Authenticode signature: $($Signature.Status)"
+              }
+            }
+          } else {
+            $Gui = 'build/signing/installer-payload/YukiHub.exe'
+            $Updater = 'build/signing/installer-payload/YukiHubUpdater.exe'
+            Write-Host 'SignPath 未配置：跳过签名，使用未签名安装版载荷'
           }
 
           $PayloadDir = 'build/windows/payload/${{ matrix.arch }}'
-          Copy-Item -LiteralPath $SignedGui -Destination "$PayloadDir/YukiHub.exe" -Force
-          Copy-Item -LiteralPath $SignedUpdater -Destination 'build/bin/YukiHubUpdater.exe' -Force
+          Copy-Item -LiteralPath $Gui -Destination "$PayloadDir/YukiHub.exe" -Force
+          Copy-Item -LiteralPath $Updater -Destination 'build/bin/YukiHubUpdater.exe' -Force
           .\scripts\build.bat installer-package '${{ needs.version.outputs.version }}' '${{ matrix.arch }}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -393,7 +415,7 @@ jobs:
           retention-days: 1
 
       - name: 提交安装包签名（SignPath）
-        if: matrix.mode == 'installer'
+        if: matrix.mode == 'installer' && vars.SIGNPATH_ORGANIZATION_ID != ''
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -406,13 +428,25 @@ jobs:
           wait-for-completion-timeout-in-seconds: 1200
           output-artifact-directory: signed-installer
 
-      - name: 校验已签名安装包
+      - name: 准备安装包制品
         if: matrix.mode == 'installer'
         shell: pwsh
+        env:
+          SIGNING_ENABLED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
         run: |
-          $Artifact = 'signed-installer/YukiHub-${{ needs.version.outputs.version }}-windows-${{ matrix.arch }}-setup.exe'
-          if (!(Test-Path -LiteralPath $Artifact)) {
-            throw "Signed installer artifact not found: $Artifact"
+          $ErrorActionPreference = 'Stop'
+          $Version = '${{ needs.version.outputs.version }}'
+          $Arch = '${{ matrix.arch }}'
+          $Artifact = "signed-installer/YukiHub-$Version-windows-$Arch-setup.exe"
+
+          if ($env:SIGNING_ENABLED -eq 'true') {
+            if (!(Test-Path -LiteralPath $Artifact)) {
+              throw "Signed installer artifact not found: $Artifact"
+            }
+          } else {
+            New-Item -ItemType Directory -Force -Path 'signed-installer' | Out-Null
+            Copy-Item -LiteralPath "build/bin/YukiHub-$Version-windows-$Arch-setup.exe" -Destination $Artifact -Force
+            Write-Host "SignPath 未配置：跳过签名，使用未签名安装包 $Artifact"
           }
 
       - name: 上传安装包制品
