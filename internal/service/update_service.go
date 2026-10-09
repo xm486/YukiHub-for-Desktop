@@ -17,18 +17,18 @@ import (
 
 	"yukihub/internal/version"
 
-	"golang.org/x/mod/semver"
 	"resty.dev/v3"
 	"yukihub/internal/wailsruntime"
 )
 
 // UpdateInfo 版本信息结构
 type UpdateInfo struct {
-	Version           string            `json:"version"`             // 版本号，如 1.2.0
+	Version           string            `json:"version"`             // 版本号，如 0.2.5
 	ReleaseDate       string            `json:"release_date"`        // 发布日期，如 2024-01-15
 	Changelog         []string          `json:"changelog"`           // 更新日志内容数组
-	Downloads         map[string]string `json:"downloads"`           // 下载链接字典：github, gitee 等
-	UpdateManifestURL string            `json:"update_manifest_url"` // 应用内更新清单
+	Downloads         map[string]string `json:"downloads"`           // 下载链接：release_page / windows / linux
+	ReleaseURL        string            `json:"release_url"`         // 发布页地址
+	UpdateManifestURL string            `json:"update_manifest_url"` // 应用内更新清单（有才提供自动更新）
 }
 
 // UpdateCheckResult 更新检查结果
@@ -39,7 +39,9 @@ type UpdateCheckResult struct {
 	ReleaseDate       string            `json:"release_date"`        // 发布日期
 	Changelog         []string          `json:"changelog"`           // 更新日志内容
 	Downloads         map[string]string `json:"downloads"`           // 下载链接
+	ReleaseURL        string            `json:"release_url"`         // 发布页地址
 	UpdateManifestURL string            `json:"update_manifest_url"` // 应用内更新清单
+	UpdateSource      string            `json:"update_source"`       // 本次实际生效的更新源：gitcode / github / custom
 }
 
 // UpdateService 更新服务
@@ -50,13 +52,6 @@ type UpdateService struct {
 	applyMu     sync.Mutex
 	runtime     wailsruntime.Runtime
 }
-
-// 默认更新检查 URL 列表（按优先级排序）。
-//
-// YukiHub Desktop 不复用上游 LunaBox 的更新服务，因此这里默认为空：
-// 更新地址来自构建期注入的 version.UpdateServiceURL，或用户在设置中填写的自定义地址。
-// 在自建更新服务上线前，未配置地址时更新检查会直接跳过，不会请求任何第三方域名。
-var defaultUpdateURLs = []string{}
 
 func NewUpdateService(quitHandlers ...func()) *UpdateService {
 	service := &UpdateService{runtime: wailsruntime.Unavailable()}
@@ -134,38 +129,28 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 		}
 	}
 
-	// 获取更新检查 URL
-	urls := s.getUpdateURLs(appConfig.UpdateCheckURL)
+	// 取更新信息：填了自定义地址就按旧格式读，否则查代码托管平台的 releases/latest。
+	var (
+		updateInfo   *UpdateInfo
+		updateSource string
+	)
 
-	// 未配置任何更新源时直接跳过，不视为错误。
-	// YukiHub 在自建更新服务上线前属于这种情况：defaultUpdateURLs 为空、
-	// version.UpdateServiceURL 未经构建期注入、用户也未填自定义地址。
-	// 此前这里会落到下面的 updateInfo == nil 分支，把"没有源"误报成
-	// "所有源都失败"，并把 nil 传给 %w，界面上就会弹出
-	// "failed to fetch update info from all sources: %!w(<nil>)"。
-	if len(urls) == 0 {
-		applog.LogInfo(s.ctx, "[UpdateService] 未配置更新源，跳过更新检查")
-		return nil, nil
-	}
-
-	// 尝试从各个 URL 获取版本信息
-	var updateInfo *UpdateInfo
-	var lastErr error
-	for _, url := range urls {
-		updateInfo, lastErr = s.fetchUpdateInfo(url, &appConfig)
-		if lastErr == nil {
-			break
+	if customURL := strings.TrimSpace(appConfig.UpdateCheckURL); customURL != "" {
+		fetched, fetchErr := s.fetchUpdateInfo(customURL, &appConfig)
+		if fetchErr != nil {
+			applog.LogWarningf(s.ctx, "[UpdateService] 自定义更新源不可用：%v", fetchErr)
+			return nil, fmt.Errorf("[UpdateService] 自定义更新源不可用: %w", fetchErr)
 		}
-		applog.LogWarningf(s.ctx, "Failed to fetch update info from %s: %v", url, lastErr)
+		updateInfo, updateSource = fetched, updateSourceCustom
+	} else {
+		fetched, source, fetchErr := s.fetchLatestRelease(&appConfig)
+		if fetchErr != nil {
+			applog.LogWarningf(s.ctx, "[UpdateService] 获取最新发布失败：%v", fetchErr)
+			return nil, fmt.Errorf("[UpdateService] 检查更新失败: %w", fetchErr)
+		}
+		updateInfo, updateSource = fetched, source
 	}
 
-	if updateInfo == nil {
-		if lastErr == nil {
-			lastErr = fmt.Errorf("no update source returned a usable response")
-		}
-		applog.LogWarningf(s.ctx, "[UpdateService] failed to fetch update info from all sources: %v", lastErr)
-		return nil, fmt.Errorf("[UpdateService] failed to fetch update info from all sources: %w", lastErr)
-	}
 	// 更新最后检查时间
 	s.updateLastCheckTime()
 
@@ -175,11 +160,17 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to compare versions: %w", err)
 	}
-	if appConfig.UpdateCheckURL == "" && goruntime.GOOS == "windows" && strings.TrimSpace(updateInfo.UpdateManifestURL) == "" {
-		updateInfo.UpdateManifestURL, err = buildOfficialUpdateManifestURL(version.UpdateServiceURL, updateInfo.Version)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build update manifest url: %w", err)
+
+	// 只有发布里带了更新清单、或构建期注入了自建更新服务时，才拼装自动更新地址；
+	// 都没有时留空 → 界面只提供「打开发布页」。
+	if strings.TrimSpace(updateInfo.UpdateManifestURL) == "" &&
+		updateSource != updateSourceCustom &&
+		goruntime.GOOS == "windows" {
+		manifestURL, manifestErr := buildOfficialUpdateManifestURL(version.UpdateServiceURL, updateInfo.Version)
+		if manifestErr != nil {
+			return nil, fmt.Errorf("failed to build update manifest url: %w", manifestErr)
 		}
+		updateInfo.UpdateManifestURL = manifestURL
 	}
 
 	// 只有自动检查时才检查跳过版本（手动检查时 SkipVersion 已被清空）
@@ -198,24 +189,12 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 		ReleaseDate:       updateInfo.ReleaseDate,
 		Changelog:         updateInfo.Changelog,
 		Downloads:         updateInfo.Downloads,
+		ReleaseURL:        updateInfo.ReleaseURL,
 		UpdateManifestURL: updateInfo.UpdateManifestURL,
+		UpdateSource:      updateSource,
 	}
 
 	return result, nil
-}
-
-// getUpdateURLs 获取更新检查 URL 列表
-func (s *UpdateService) getUpdateURLs(customURL string) []string {
-	if customURL != "" {
-		return []string{customURL}
-	}
-	serviceURL := strings.TrimRight(strings.TrimSpace(version.UpdateServiceURL), "/")
-	if serviceURL == "" {
-		return defaultUpdateURLs
-	}
-	urls := make([]string, 0, len(defaultUpdateURLs)+1)
-	urls = append(urls, serviceURL+"/version.json")
-	return append(urls, defaultUpdateURLs...)
 }
 
 func buildOfficialUpdateManifestURL(serviceURL string, releaseVersion string) (string, error) {
@@ -292,76 +271,4 @@ func (s *UpdateService) SkipVersion(ver string) error {
 // OpenDownloadURL 打开下载页面（已废弃，请在前端使用 @wailsio/runtime 的 Browser.OpenURL）。
 func (s *UpdateService) OpenDownloadURL(url string) error {
 	return s.runtime.OpenURL(url)
-}
-
-// compareVersions 比较两个版本号
-// 返回 (true, nil) 表示 v1 < v2（即需要更新）
-func compareVersions(v1, v2 string) (bool, error) {
-	// 处理 dev 版本
-	if strings.TrimPrefix(strings.TrimSpace(v1), "v") == "dev" {
-		return false, nil // dev 版本不提示更新
-	}
-	if strings.TrimPrefix(strings.TrimSpace(v2), "v") == "dev" {
-		return false, nil
-	}
-
-	normalizedV1, err := normalizeComparableVersion(v1)
-	if err != nil {
-		return false, err
-	}
-	normalizedV2, err := normalizeComparableVersion(v2)
-	if err != nil {
-		return false, err
-	}
-
-	return compareNormalizedVersions(normalizedV1, normalizedV2) < 0, nil
-}
-
-// compareNormalizedVersions follows SemVer precedence with one project-specific
-// rule: a dev build is newer than the release with the same core version.
-func compareNormalizedVersions(v1, v2 string) int {
-	if versionCore(v1) == versionCore(v2) {
-		prereleaseV1 := semver.Prerelease(v1)
-		prereleaseV2 := semver.Prerelease(v2)
-		isDevV1 := isDevelopmentPrerelease(prereleaseV1)
-		isDevV2 := isDevelopmentPrerelease(prereleaseV2)
-
-		if isDevV1 && prereleaseV2 == "" {
-			return 1
-		}
-		if prereleaseV1 == "" && isDevV2 {
-			return -1
-		}
-	}
-
-	return semver.Compare(v1, v2)
-}
-
-func versionCore(value string) string {
-	if index := strings.IndexAny(value, "-+"); index >= 0 {
-		return value[:index]
-	}
-	return value
-}
-
-func isDevelopmentPrerelease(value string) bool {
-	return value == "-dev" || strings.HasPrefix(value, "-dev.")
-}
-
-func normalizeComparableVersion(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	withoutPrefix := strings.TrimPrefix(trimmed, "v")
-
-	// 兼容旧 autobuild 受滚动标签 dev-latest 影响生成的非法版本号。
-	// 由于这类版本缺失正式基础版本，将其视为 0.0.0 的开发预发布版本。
-	if strings.HasPrefix(withoutPrefix, "dev-latest-dev.") {
-		withoutPrefix = "0.0.0-" + strings.TrimPrefix(withoutPrefix, "dev-latest-")
-	}
-
-	normalized := "v" + withoutPrefix
-	if !semver.IsValid(normalized) {
-		return "", fmt.Errorf("invalid version format: %s", trimmed)
-	}
-
-	return normalized, nil
 }

@@ -1234,9 +1234,19 @@ export class UpdateCheckResult {
     "downloads": { [_ in string]?: string };
 
     /**
+     * 发布页地址
+     */
+    "release_url": string;
+
+    /**
      * 应用内更新清单
      */
     "update_manifest_url": string;
+
+    /**
+     * 本次实际生效的更新源：gitcode / github / custom
+     */
+    "update_source": string;
 
     /** Creates a new UpdateCheckResult instance. */
     constructor($$source: Partial<UpdateCheckResult> = {}) {
@@ -1258,8 +1268,14 @@ export class UpdateCheckResult {
         if (!("downloads" in $$source)) {
             this["downloads"] = {};
         }
+        if (!("release_url" in $$source)) {
+            this["release_url"] = "";
+        }
         if (!("update_manifest_url" in $$source)) {
             this["update_manifest_url"] = "";
+        }
+        if (!("update_source" in $$source)) {
+            this["update_source"] = "";
         }
 
         Object.assign(this, $$source);

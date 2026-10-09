@@ -1424,7 +1424,11 @@
       "checkFailed": "Failed to check for updates",
       "newVersion": "New version available",
       "upToDate": "You are up to date",
-      "skipFailed": "Failed to skip: {{error}}"
+      "skipFailed": "Failed to skip: {{error}}",
+      "sourceLabel": "Update source",
+      "sourceHint": "Where update checks come from (GitCode by default; falls back to the other source automatically)",
+      "sourceGitCode": "GitCode",
+      "sourceGitHub": "GitHub"
     },
     "subSections": {
       "about": "About & license",
@@ -1780,8 +1784,7 @@
     "updateFailed": "In-app update failed",
     "noFilesToUpdate": "The installed files already match this release",
     "close": "Close update dialog",
-    "giteeDownload": "Download from Gitee",
-    "githubDownload": "Download from GitHub",
+    "openReleasePage": "Open release page",
     "manualFallback": "You can still download the full release using a link below."
   },
   "category": {

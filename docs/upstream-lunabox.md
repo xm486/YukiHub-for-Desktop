@@ -128,6 +128,31 @@ YukiHub Desktop 是 YukiHub 项目的桌面版本（Windows / Linux amd64）。
   标识，服务端可能据此识别与限流，改动风险大于收益；UA 尾部仍带 `(desktop)` 以区分两端。
 - 本地工作目录同步更名为 `YukiHub for Desktop`。
 
+### 2026-10-09 — 更新检查改为读 releases/latest，版本号段数放开（对齐手机版）
+
+- **版本号段数不再固定**：`0.1` / `0.2.5` / `0.1.2.5` 都合法（手机版历史上用过
+  `v0.1.0`、`v0.2`、`v0.1.2.5`、`v0.2.6.1`）。原先版本比较走严格 SemVer
+  （`semver.IsValid("0.1")` 为 false），两段版本号会直接被判成非法。现改为
+  `internal/service/version_compare.go` 的**逐段数值比较**：段数不足一方按 0 补齐、
+  构建元数据忽略、预发布沿用 SemVer 优先级，并保留两条既有约定
+  （同核心版本下 dev 构建优先于正式版；裸 `dev` 不提示更新）。
+- `release.yml` 的 tag 触发由 `v*.*.*` 放宽到 `v*`；`validate` 的正则改为
+  「至少两段、每段数字、最多 6 段」；`sync/version.json` 的一致性校验
+  （`release.yml` / `update-test.yml`）改为**归一化后比较**，`0.1` 与 `0.1.0` 不再误报。
+- **检查更新改为读代码托管平台的 `releases/latest`**（与手机版同一形态），
+  不再依赖自建更新服务：GitHub 走 `api.github.com`，GitCode 走 `gitcode.com/api/v5`。
+  新增 `internal/service/update_release_source.go`；版本取 `tag_name`、更新说明取
+  `body`、发布日期取 `published_at`（GitCode 无该字段则退回 `created_at`）。
+  GitCode 的 `assets` 会附带四个源码包（`type=source`），只认 `type=attach` 的真附件。
+- 新增设置项 **`update_source`（更新源）**：单选，默认 **GitCode**（与手机版一致），
+  可切 GitHub；**选定的源失败时自动改用另一个源**（手机版是提示用户手动换源）。
+  设置页在「启动时自动检查更新」上方新增该项。
+- **应用内自动更新降级为可选**：只有 release 里带了更新清单附件（文件名含 `manifest`）
+  且平台是 Windows 时才提供「立即更新」，否则界面只给「打开发布页」。
+  原先 Windows 在没有清单时**一个按钮都没有**（只剩「跳过此版本」），一并修掉；
+  同时移除只指向 Gitee 的下载按钮（`downloads.gitee` 不再产生）。
+- 移除 `getUpdateURLs` / `defaultUpdateURLs`：填充源改为托管平台后它们不再被调用。
+
 ### 尚未修改、计划修改
 
 - 产品界面与交互仍为上游形态，尚未替换为 YukiHub 的视觉与信息架构。

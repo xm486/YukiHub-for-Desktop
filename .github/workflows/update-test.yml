@@ -545,7 +545,16 @@ jobs:
         run: |
           SOURCE_FILE="sync/version-test.json"
           SOURCE_VERSION="$(jq -r '.version // empty' "$SOURCE_FILE")"
-          if [ "$SOURCE_VERSION" != "$VERSION" ]; then
+
+          # 版本号段数不固定（0.1 与 0.1.0 等价），比较前先归一化：
+          # 去掉 v 前缀与预发布 / 构建后缀，段数不足 3 段补 0。
+          normalize_version() {
+            printf '%s' "$1" \
+              | sed -E 's/^v//; s/[-+].*$//' \
+              | awk -F. '{ while (NF < 3) { $(NF + 1) = "0" } printf "%s", $1; for (i = 2; i <= NF; i++) printf ".%s", $i }'
+          }
+
+          if [ "$(normalize_version "$SOURCE_VERSION")" != "$(normalize_version "$VERSION")" ]; then
             echo "$SOURCE_FILE version $SOURCE_VERSION does not match release version $VERSION" >&2
             exit 1
           fi

@@ -470,6 +470,11 @@ export class AppConfig {
     "check_update_on_startup": boolean;
 
     /**
+     * 更新源：gitcode（默认）/ github
+     */
+    "update_source"?: string;
+
+    /**
      * 自定义更新检查 URL
      */
     "update_check_url"?: string;

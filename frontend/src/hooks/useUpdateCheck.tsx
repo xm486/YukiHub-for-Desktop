@@ -12,7 +12,9 @@ interface UpdateInfo {
   release_date: string;
   changelog: string[];
   downloads: Record<string, string | undefined>;
+  release_url: string;
   update_manifest_url: string;
+  update_source: string;
 }
 
 export function useUpdateCheck() {

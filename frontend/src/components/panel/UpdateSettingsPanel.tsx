@@ -22,7 +22,9 @@ interface UpdateInfo {
   release_date: string;
   changelog: string[];
   downloads: Record<string, string | undefined>;
+  release_url: string;
   update_manifest_url: string;
+  update_source: string;
 }
 
 export function UpdateSettingsPanel({
@@ -75,6 +77,41 @@ export function UpdateSettingsPanel({
   return (
     <>
       <div className="space-y-4">
+        {/* 更新源 */}
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-brand-700 dark:text-brand-300">
+            {t("settings.update.sourceLabel")}
+          </label>
+          <p className="text-xs text-brand-500 dark:text-brand-400">
+            {t("settings.update.sourceHint")}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {(["gitcode", "github"] as const).map((source) => {
+              const selected = (formData.update_source || "gitcode") === source;
+              return (
+                <button
+                  key={source}
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...formData,
+                      update_source: source,
+                    } as appconf.AppConfig)}
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    selected
+                      ? "border-accent-500 bg-accent-50 text-accent-700 dark:border-accent-400 dark:bg-accent-900/30 dark:text-accent-300"
+                      : "border-brand-200 bg-white/70 text-brand-600 hover:bg-white dark:border-brand-600 dark:bg-[#1D2B3E]/70 dark:text-brand-300 dark:hover:bg-[#1D2B3E]"
+                  }`}
+                >
+                  {source === "gitcode"
+                    ? t("settings.update.sourceGitCode")
+                    : t("settings.update.sourceGitHub")}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Auto check on startup */}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-4">

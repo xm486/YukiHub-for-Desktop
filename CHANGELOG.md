@@ -56,6 +56,17 @@
   Linux 包元数据 `homepage`、`sync/version.json` 的 `downloads.github` —— 原先都指向
   Android 手机版仓库 `xm486/YukiHub`。文档与合规材料里的 `YukiHub for Windows`
   统一为 `YukiHub for Desktop`（User-Agent 前缀保持 `xm486/YukiHub/` 不变）
+- **版本号段数不再固定**（对齐 Android 手机版）：`0.1`、`0.2.5`、`0.1.2.5` 都合法。
+  版本比较改为**逐段数值比较**（段数不足一方按 0 补齐，`0.1` 与 `0.1.0` 等价）；
+  发布流水线的 tag 触发从 `v*.*.*` 放宽到 `v*`，`sync/version.json` 的一致性校验
+  也改为归一化后比较
+- **检查更新改为读取代码托管平台的 `releases/latest`**（对齐手机版），不再依赖
+  自建更新服务：GitHub 走 `api.github.com`、GitCode 走 `gitcode.com/api/v5`。
+  新增设置项「更新源」（默认 **GitCode**，可切 GitHub），选定的源请求失败时
+  **自动改用另一个源**。版本取自 `tag_name`、更新说明取自 `body`、发布日期取自
+  `published_at`（GitCode 退回 `created_at`）。界面统一提供**「打开发布页」**；
+  只有发布里带了更新清单附件且平台是 Windows 时，才额外提供应用内自动更新
+  （本仓库暂无代码签名证书，所以默认只走「打开发布页」）
 - 设置页瘦身：删除代理、键盘快捷键、CLI 与 MCP（桌面版不需要），
   备份收敛为本地自动备份；新增「当前资料源」；账户区只保留第三方授权
 - 游戏详情页：删除与 NSFW 入口上移到顶部操作区（原先在编辑页最底部）

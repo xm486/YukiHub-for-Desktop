@@ -259,6 +259,7 @@ type AppConfig struct {
 	PlayTimingMode string `json:"play_timing_mode,omitempty"`
 	// 自动更新配置
 	CheckUpdateOnStartup bool   `json:"check_update_on_startup"`     // 启动时自动检查更新
+	UpdateSource         string `json:"update_source,omitempty"`     // 更新源：gitcode（默认）/ github
 	UpdateCheckURL       string `json:"update_check_url,omitempty"`  // 自定义更新检查 URL
 	LastUpdateCheck      string `json:"last_update_check,omitempty"` // 上次更新检查时间
 	SkipVersion          string `json:"skip_version,omitempty"`      // 跳过的版本号（用户选择忽略的更新）
@@ -443,7 +444,8 @@ func defaultAppConfig() *AppConfig {
 		MuteGameInBackground:       false,
 		ProcessDetectionTimeoutSec: DefaultProcessDetectionTimeoutSec,
 		PlayTimingMode:             DefaultPlayTimingMode,
-		CheckUpdateOnStartup:       true, // 默认开启启动时检查更新
+		CheckUpdateOnStartup:       true,      // 默认开启启动时检查更新
+		UpdateSource:               "gitcode", // 默认 GitCode（与手机版一致），可在设置里切换 GitHub
 		UpdateCheckURL:             "",
 		LastUpdateCheck:            "",
 		SkipVersion:                "",

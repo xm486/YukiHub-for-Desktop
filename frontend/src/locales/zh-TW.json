@@ -1424,7 +1424,11 @@
       "checkFailed": "檢查更新失敗",
       "newVersion": "發現新版本",
       "upToDate": "已是最新版本",
-      "skipFailed": "修改失敗：{{error}}"
+      "skipFailed": "修改失敗：{{error}}",
+      "sourceLabel": "更新來源",
+      "sourceHint": "檢查更新時使用的來源（預設 GitCode，取得失敗會自動改用另一個）",
+      "sourceGitCode": "GitCode",
+      "sourceGitHub": "GitHub"
     },
     "subSections": {
       "about": "關於與開源授權",
@@ -1780,8 +1784,7 @@
     "updateFailed": "應用程式內更新失敗",
     "noFilesToUpdate": "目前檔案已經是目標版本",
     "close": "關閉更新視窗",
-    "giteeDownload": "Gitee 下載",
-    "githubDownload": "GitHub 下載",
+    "openReleasePage": "開啟發佈頁",
     "manualFallback": "你仍可使用下方連結手動下載完整版本。"
   },
   "category": {

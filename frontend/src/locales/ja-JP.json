@@ -1424,7 +1424,11 @@
       "checkFailed": "更新確認に失敗しました",
       "newVersion": "新しいバージョンが見つかりました",
       "upToDate": "最新バージョンです",
-      "skipFailed": "変更に失敗しました: {{error}}"
+      "skipFailed": "変更に失敗しました: {{error}}",
+      "sourceLabel": "更新元",
+      "sourceHint": "更新を確認する取得元（既定は GitCode。失敗時は自動でもう一方に切り替えます）",
+      "sourceGitCode": "GitCode",
+      "sourceGitHub": "GitHub"
     },
     "subSections": {
       "about": "このアプリとライセンス",
@@ -1780,8 +1784,7 @@
     "updateFailed": "アプリ内更新に失敗しました",
     "noFilesToUpdate": "インストール済みファイルはすでに対象バージョンです",
     "close": "更新ダイアログを閉じる",
-    "giteeDownload": "Gitee ダウンロード",
-    "githubDownload": "GitHub ダウンロード",
+    "openReleasePage": "リリースページを開く",
     "manualFallback": "下のリンクから完全版を手動でダウンロードできます。"
   },
   "category": {

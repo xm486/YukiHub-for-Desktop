@@ -18,11 +18,13 @@ name: 发布版本（Release）
 on:
   push:
     tags:
-      - 'v*.*.*'  # 例如: v1.0.0, v1.2.3
+      # 段数不固定（与 Android 手机版一致）：v0.1 / v0.2.5 / v1.0.0 / v0.1.2.5 都算；
+      # 具体格式由下面 validate 作业的正则校验，非法格式几秒内被拦下。
+      - 'v*'
   # 手动发布有两种用法（validate 作业会把二者统一成一个版本号，作为下游唯一来源）：
-  #   1) 在「version」里填版本号（如 1.2.3）后直接运行 —— 可以从任意分支发起，
-  #      Release 建在 v1.2.3 标签上（标签不存在时由 GitHub 自动创建并指向本次提交）。
-  #   2) 留空 version，则在右上角「Use workflow from」里选一个 v*.*.* 标签，用标签版本。
+  #   1) 在「version」里填版本号（如 0.1 / 0.2.5）后直接运行 —— 可以从任意分支发起，
+  #      Release 建在 v<版本号> 标签上（标签不存在时由 GitHub 自动创建并指向本次提交）。
+  #   2) 留空 version，则在右上角「Use workflow from」里选一个 v* 标签，用标签版本。
   # 两者都为空、或互相冲突、或 build_windows/build_linux 都没勾，都会被 validate 几秒内拦下。
   #
   # 注意版本号还要和仓库里的 sync/version.json 一致（它是稳定更新通道的版本来源），
@@ -33,7 +35,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（可选）：留空＝用所选的 v*.*.* 标签；填写则用它（如 1.2.3，可带 v），可从任意分支发布'
+        description: '版本号（可选）：留空＝用所选的 v* 标签；填写则用它（如 0.1 / 0.2.5，可带 v），可从任意分支发布'
         required: false
         type: string
         default: ''
@@ -104,12 +106,14 @@ jobs:
           elif [ -n "$tag_version" ]; then
             version="$tag_version"
           else
-            echo "::error::未提供版本号：请在 version 输入里填写（如 1.2.3），或在右上角「Use workflow from」里选择一个 v*.*.* 标签。"
+            echo "::error::未提供版本号：请在 version 输入里填写（如 0.1 / 0.2.5），或在右上角「Use workflow from」里选择一个 v* 标签。"
             exit 1
           fi
 
-          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::版本号格式非法：$version（应形如 1.2.3 或 1.2.3-rc.1）"
+          # 段数不固定（与手机版一致）：0.1 / 0.2.5 / 1.0.0 / 0.1.2.5 都合法，
+          # 但每段必须是数字，可选 -rc.1 这类预发布后缀。
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+(\.[0-9]+){1,5}(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::版本号格式非法：$version（应形如 0.1、0.2.5 或 1.0.0-rc.1）"
             exit 1
           fi
 
@@ -798,7 +802,16 @@ jobs:
         run: |
           SOURCE_FILE="sync/version.json"
           SOURCE_VERSION="$(jq -r '.version // empty' "$SOURCE_FILE")"
-          if [ "$SOURCE_VERSION" != "$VERSION" ]; then
+
+          # 版本号段数不固定（0.1 与 0.1.0 等价），比较前先归一化：
+          # 去掉 v 前缀与预发布 / 构建后缀，段数不足 3 段补 0。
+          normalize_version() {
+            printf '%s' "$1" \
+              | sed -E 's/^v//; s/[-+].*$//' \
+              | awk -F. '{ while (NF < 3) { $(NF + 1) = "0" } printf "%s", $1; for (i = 2; i <= NF; i++) printf ".%s", $i }'
+          }
+
+          if [ "$(normalize_version "$SOURCE_VERSION")" != "$(normalize_version "$VERSION")" ]; then
             echo "::error::$SOURCE_FILE 里的版本（$SOURCE_VERSION）与本次发布版本（$VERSION）不一致。请先把 $SOURCE_FILE 的 version 改成 $VERSION 并提交，再重新发布。"
             exit 1
           fi

@@ -14,7 +14,9 @@ interface UpdateInfo {
   release_date: string;
   changelog: string[];
   downloads: Record<string, string | undefined>;
+  release_url: string;
   update_manifest_url: string;
+  update_source: string;
 }
 
 interface UpdateProgress {
@@ -92,13 +94,12 @@ export function UpdateDialog({
     return null;
   }
 
-  const supportsInAppUpdate = platformGOOS === "windows";
-  const usesManualUpdate
-    = platformGOOS === "darwin" || platformGOOS === "linux";
-  const showGitHubDownload
-    = usesManualUpdate && Boolean(updateInfo.downloads.github);
-  const showGiteeDownload
-    = usesManualUpdate && Boolean(updateInfo.downloads.gitee);
+  // 只有在「发布里带了更新清单」且是 Windows 时才提供应用内自动更新；
+  // 其余情况一律提供「打开发布页」，由用户到发布页自行下载。
+  const supportsInAppUpdate
+    = platformGOOS === "windows" && Boolean(updateInfo.update_manifest_url);
+  const releasePageUrl
+    = updateInfo.release_url || updateInfo.downloads.release_page || "";
 
   const handleClose = () => {
     if (isUpdating) {
@@ -113,10 +114,9 @@ export function UpdateDialog({
     handleClose();
   };
 
-  const handleDownload = (source: string) => {
-    const url = updateInfo.downloads[source];
-    if (url) {
-      void Browser.OpenURL(url);
+  const handleOpenReleasePage = () => {
+    if (releasePageUrl) {
+      void Browser.OpenURL(releasePageUrl);
     }
   };
 
@@ -280,7 +280,7 @@ export function UpdateDialog({
                 </div>
               )}
 
-              {supportsInAppUpdate && updateInfo.update_manifest_url && (
+              {supportsInAppUpdate && (
                 <button
                   type="button"
                   onClick={handleInAppUpdate}
@@ -303,39 +303,22 @@ export function UpdateDialog({
                     {t("updateDialog.updateFailed")}
                   </p>
                   <p className="mt-1 break-words">{updateError}</p>
-                  {(showGitHubDownload || showGiteeDownload) && (
+                  {releasePageUrl && (
                     <p className="mt-1">{t("updateDialog.manualFallback")}</p>
                   )}
                 </div>
               )}
 
-              {(showGitHubDownload || showGiteeDownload) && (
-                <div
-                  className={`grid gap-2 ${showGitHubDownload && showGiteeDownload ? "grid-cols-2" : "grid-cols-1"}`}
+              {releasePageUrl && (
+                <button
+                  type="button"
+                  onClick={handleOpenReleasePage}
+                  disabled={isUpdating}
+                  className="w-full px-4 py-2.5 text-sm font-medium text-white bg-brand-700 hover:bg-brand-800 dark:bg-brand-200 dark:hover:bg-white dark:text-brand-900 rounded-lg transition-colors flex items-center justify-center gap-2"
                 >
-                  {showGitHubDownload && (
-                    <button
-                      type="button"
-                      onClick={() => handleDownload("github")}
-                      disabled={isUpdating}
-                      className="w-full px-4 py-2.5 text-sm font-medium text-white bg-brand-700 hover:bg-brand-800 dark:bg-brand-200 dark:hover:bg-white dark:text-brand-900 rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      <span className="i-mdi-github text-lg" />
-                      {t("updateDialog.githubDownload")}
-                    </button>
-                  )}
-                  {showGiteeDownload && (
-                    <button
-                      type="button"
-                      onClick={() => handleDownload("gitee")}
-                      disabled={isUpdating}
-                      className="w-full px-4 py-2.5 text-sm font-medium text-white bg-neutral-600 hover:bg-neutral-700 rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      <span className="i-mdi-cloud-download text-lg" />
-                      {t("updateDialog.giteeDownload")}
-                    </button>
-                  )}
-                </div>
+                  <span className="i-mdi-open-in-new text-lg" />
+                  {t("updateDialog.openReleasePage")}
+                </button>
               )}
               <button
                 type="button"

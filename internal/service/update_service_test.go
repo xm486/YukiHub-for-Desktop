@@ -2,32 +2,7 @@ package service
 
 import (
 	"testing"
-
-	"yukihub/internal/version"
 )
-
-func TestGetUpdateURLs(t *testing.T) {
-	previousServiceURL := version.UpdateServiceURL
-	t.Cleanup(func() {
-		version.UpdateServiceURL = previousServiceURL
-	})
-
-	service := NewUpdateService()
-	version.UpdateServiceURL = "https://updates.example.com/"
-	urls := service.getUpdateURLs("")
-	if len(urls) != len(defaultUpdateURLs)+1 {
-		t.Fatalf("getUpdateURLs() returned %d URLs, want %d", len(urls), len(defaultUpdateURLs)+1)
-	}
-	if urls[0] != "https://updates.example.com/version.json" {
-		t.Fatalf("getUpdateURLs()[0] = %q", urls[0])
-	}
-
-	customURL := "https://mirror.example.com/version.json"
-	customURLs := service.getUpdateURLs(customURL)
-	if len(customURLs) != 1 || customURLs[0] != customURL {
-		t.Fatalf("getUpdateURLs(custom) = %q", customURLs)
-	}
-}
 
 func TestBuildOfficialUpdateManifestURL(t *testing.T) {
 	tests := []struct {
@@ -125,6 +100,48 @@ func TestCompareVersions(t *testing.T) {
 			current:    "dev",
 			latest:     "2.0.0",
 			wantUpdate: false,
+		},
+		{
+			name:       "two-segment version padded with zero",
+			current:    "0.1",
+			latest:     "0.1.0",
+			wantUpdate: false,
+		},
+		{
+			name:       "two-segment version upgrade",
+			current:    "0.1",
+			latest:     "0.2",
+			wantUpdate: true,
+		},
+		{
+			name:       "two-segment version is newer than lower three-segment",
+			current:    "0.1.5",
+			latest:     "0.2",
+			wantUpdate: true,
+		},
+		{
+			name:       "two-segment latest is older than current",
+			current:    "0.2.5",
+			latest:     "0.2",
+			wantUpdate: false,
+		},
+		{
+			name:       "four-segment version upgrade",
+			current:    "0.1.2",
+			latest:     "0.1.2.5",
+			wantUpdate: true,
+		},
+		{
+			name:       "four-segment current is newer",
+			current:    "0.2.6.1",
+			latest:     "0.2.6",
+			wantUpdate: false,
+		},
+		{
+			name:       "v prefix with two segments",
+			current:    "v0.1",
+			latest:     "v0.2",
+			wantUpdate: true,
 		},
 		{
 			name:    "invalid version",
