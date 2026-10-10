@@ -187,6 +187,20 @@ export function ManageGroupMessage(messageID: string, action: string): $Cancella
 }
 
 /**
+ * NotifyOffline 尽力上报一次下线（**关闭客户端**时调用，退出登录走 LogoutAccount）。
+ * 
+ * 契约（docs/yukihub-presence-platform.md §3.3）要求「退出登录 / 关闭客户端时
+ * 尽力调用一次」：调不通也没关系，服务端 10 分钟收不到心跳会自动判离线。
+ * 失败只记日志，绝不阻塞退出流程；调用方负责限时。
+ * 
+ * 会**先停掉心跳循环**再上报：否则一个刚好到点的 tick 会把状态又顶回在线，
+ * 好友那边要再过 10 分钟才看到你离开。
+ */
+export function NotifyOffline(): $CancellablePromise<void> {
+    return $Call.ByID(4229925392);
+}
+
+/**
  * PollChatMessages 拉新消息（前端每 10 秒调一次，与手机版一致）。
  */
 export function PollChatMessages(afterID: string, friendID: string, peek: boolean): $CancellablePromise<yukihubaccount$0.ChatMessage[]> {
