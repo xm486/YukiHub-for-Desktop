@@ -22,6 +22,12 @@ export default defineConfig({
       "gameLaunch.steamLaunchOptionsPresets.*",
       "friendsChat.section.*",
       "friendsChat.status.*",
+      // 平台名由 presencePlatformLabelKey() 拼成 friendsChat.platform.<平台>，提取器看不到。
+      // 这里刻意用**具体键名**而不是 friendsChat.platform.*：被 preserve 的集合越小越好，
+      // 以后这个前缀下再新增键时才会照常参与 i18n:clean 的孤儿检测。
+      "friendsChat.platform.android",
+      "friendsChat.platform.pc",
+      "friendsChat.platform.web",
       "gameStats.periodStatsLabel.*",
       // 这两个失败提示把键名当字符串传给 run()，提取器看不到（成功提示是字面量）
       "settings.portableSetup.toast.protocolRegisterFailed",

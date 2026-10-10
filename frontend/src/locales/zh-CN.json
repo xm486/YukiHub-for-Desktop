@@ -2058,6 +2058,11 @@
       "busy": "忙碌",
       "offline": "离线"
     },
+    "platform": {
+      "android": "手机",
+      "pc": "电脑",
+      "web": "网页"
+    },
     "me": "我",
     "groupNoticeBadge": "公告",
     "groupNoticeDesc": "仅管理员可发言",

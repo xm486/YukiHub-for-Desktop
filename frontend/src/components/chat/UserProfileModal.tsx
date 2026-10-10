@@ -8,9 +8,11 @@ import {
   SendFriendRequest,
 } from "../../../bindings/yukihub/internal/service/accountservice";
 import { useAccountStatus } from "../../hooks/useAccountStatus";
+import { presencePlatformLabelKey } from "../../utils/presencePlatform";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { formatDuration, formatDurationCompact } from "../../utils/time";
 import { ModalPortal } from "../ui/ModalPortal";
+import { PresencePlatformIcon } from "../ui/PresencePlatformIcon";
 import { ChatAvatar } from "./ChatAvatar";
 import { levelBadgeStyle } from "./levelBadge";
 
@@ -193,14 +195,22 @@ export function UserProfileModal({
                   )}
                   {/* 状态徽章：away / busy 也要显示。之前只在 online 时渲染，
                       好友列表里有琥珀点、资料页却什么都不显示，两处对不上 */}
+                  {/* 状态行：平台线性图标 + 状态文字。离线不显示（服务端这时
+                      也不会下发 platform，返回的是空串） */}
                   {profile?.status && profile.status !== "offline" && (
                     <span
-                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                         profile.status === "online"
                           ? "bg-success-500/15 text-success-600 dark:text-success-400"
                           : "bg-warning-500/20 text-warning-700 dark:text-warning-400"
                       }`}
                     >
+                      <PresencePlatformIcon
+                        platform={profile.platform}
+                        size={12}
+                        className="shrink-0"
+                        title={t(presencePlatformLabelKey(profile.platform))}
+                      />
                       {statusLabel}
                     </span>
                   )}

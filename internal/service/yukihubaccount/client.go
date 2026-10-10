@@ -426,14 +426,28 @@ func (c *Client) DownloadSnapshot(ctx context.Context, token string) ([]byte, er
 // ==================== 在线状态 ====================
 
 // Heartbeat 上报在线状态。activity 为空串表示清除「正在玩」。
+//
+// platform 固定上报 "pc"：服务端把空值兜底成 android，漏传会让好友那边
+// 显示成「手机在线」。
 func (c *Client) Heartbeat(ctx context.Context, token, status, activity string) error {
-	payload := map[string]string{"status": status, "activity": activity}
+	payload := map[string]string{
+		"status":   status,
+		"activity": activity,
+		"platform": PresencePlatformPC,
+	}
 	return c.doEmpty(ctx, http.MethodPost, c.baseURL+"/presence/heartbeat", token, payload)
 }
 
 // MarkOffline 尽力上报一次下线（失败也不影响本地登出）。
+//
+// 服务端的 offline 接口 body 是可选的，这里仍把 status / activity 一起发，
+// 保持与旧服务端兼容，另外补上 platform。
 func (c *Client) MarkOffline(ctx context.Context, token string) error {
-	payload := map[string]string{"status": "offline", "activity": ""}
+	payload := map[string]string{
+		"status":   PresenceOffline,
+		"activity": "",
+		"platform": PresencePlatformPC,
+	}
 	return c.doEmpty(ctx, http.MethodPost, c.baseURL+"/presence/offline", token, payload)
 }
 

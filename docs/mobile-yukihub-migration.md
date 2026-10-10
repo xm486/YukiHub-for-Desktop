@@ -1185,3 +1185,76 @@ service 包 4 条（来源优先级 / 空来源穿透 / 无数据返回空 / 坏
 `tsc` / `eslint`（0 error）/ `i18n:check` / `uno:check` / `vite build` / `wails3 task build` +
 exe 冒烟无 FATAL；另外用「产物 CSS + 手搓 DOM + 无头 Edge」出图确认：
 面板 2 张平分一行、只有 1 张时占满一行、详情页 `w-64` 正常换行。
+
+## 二十、2026-10-10 第十四轮：在线状态「平台标识」（服务端新增 platform）
+
+这一轮不是「照手机版抄 UI」，而是接一个**服务端新发的契约**：
+`user_presence` 表加了 `platform` 列，用来区分「手机在线 / 电脑在线」。
+契约见 `docs/yukihub-presence-platform.md`（已入库）。
+
+### 20.1 先摸清：手机版的公开仓库里**还没有**这次改动
+
+`xm486/YukiHub` 的 `main` 分支上：
+
+- `app/src/main/res/drawable/` 共 145 个文件，**没有** `ic_platform_*.xml`；
+- `MainActivity.java` 里 `platform` 只出现在游戏平台（Windows/Android）那一处，
+  与在线状态无关。
+
+也就是说服务端文档里提到的「参考实现 / 参考线稿」目前在公开仓库拿不到
+（可能在本地或未推的分支）。**因此以文档本身作为契约**，图标自己按
+「线性、24 格 viewBox、圆角线帽」重画一套，三端观感对齐。
+
+### 20.2 契约里最容易做错的一条
+
+服务端对空值做了兜底：**没上报 `platform` ＝ 旧版 App ＝ 手机**。
+所以 PC 端只要漏传，用户在电脑上登录、好友那边就会显示成「手机在线」。
+这条是硬性要求，本次专门写了回归测试钉死（见 20.5）。
+
+### 20.3 上报侧（Go）
+
+- `yukihubaccount` 新增 `PresencePlatformAndroid` / `PresencePlatformPC` /
+  `PresencePlatformWeb` 三个常量。
+- `Client.Heartbeat` 的 body 增加 `platform: "pc"`。
+- `Client.MarkOffline` 的 body 增加 `platform: "pc"`。
+  **保留了原有的 `status` / `activity`**：契约说 offline 的 body 是可选的、
+  示例只给 `{"platform":"pc"}`，但多发两个已知字段对旧服务端更保险，
+  而这次改动本身不依赖它们的语义。
+- 心跳循环沿用既有的 `AccountService.startPresence()`（登录后立刻发一次，
+  之后 45 秒一轮），**没有新增定时任务**，也不存在「托盘常驻时停发」的问题。
+
+### 20.4 读侧与展示侧
+
+- `Friend`（`friends/list`）与 `UserProfile`（`user/profile`）各加 `Platform` 字段；
+  PC 端没有在线墙界面，`community/online`、`community/user` 未接入。
+- 归一化放在前端 `utils/presencePlatform.ts`：
+  - `normalizePresencePlatform`：空串 / 未知值 → `android`（与网页端口径一致）；
+  - `showsPresencePlatform`：只有 `online`/`away`/`busy` 才显示图标。
+    **必须额外判状态**，因为 PC 端好友列表**离线好友也在列表里**，
+    不像在线墙只列在线用户。
+- 展示位三处（契约列的三个位置）：
+  - `FriendsChatModal` 好友列表项 —— 状态/活动那一行行首，13px；
+  - `FriendsOverlay` 浮层好友栏 —— 同上，12px（浮层字号整体更小）；
+  - `UserProfileModal` 个人主页状态徽章 —— 图标 + 状态文字，12px。
+- 契约「不要显示」的两条：
+  - 离线不显示 —— 由 `showsPresencePlatform` + 服务端离线下发空串双重保证；
+  - 「正在玩的人」头像横条不显示 —— PC 首页**没有**这个横条（§五 里已确认过），
+    好友开播通知浮层也刻意没加，避免视觉噪音。
+- 图标不用 emoji，自己画内联 SVG（`components/ui/PresencePlatformIcon.tsx`），
+  与项目里 `components/ui/*` 一致的具名导出。
+
+### 20.5 验收
+
+- 新增 `internal/service/yukihubaccount/presence_platform_test.go`：心跳带
+  `platform:"pc"` 且不得带 `status:"offline"`、心跳必带 `activity`、离线上报带
+  `platform`、`parseFriend` 五种取值、`UserProfile` 解析顶层 `platform`。
+  **做了负向验证**：临时从心跳里删掉 `platform`，测试精确报出
+  `心跳体里必须带 platform="pc"`，恢复后转绿。
+- `gofmt` 干净；`go test ./internal/service/... -p 1` 全绿（6m53s）。
+- 前端 `tsc` / `eslint`（0 error）/ `i18n:check` / `uno:check` / `vite build` 全过。
+- 三个图标另用「手搓 DOM + 无头 Edge 截图」目视验收：13px 下
+  机身 / 显示器 / 地球都能认出来，线宽与圆角符合契约要求的线稿风格。
+
+> `i18n:check` 有个坑：平台文案的键名由 `presencePlatformLabelKey()` 拼出来
+> （`friendsChat.platform.<平台>`），提取器看不到，必须在 `preservePatterns`
+> 里登记。这里用**三个具体键名**而不是 `friendsChat.platform.*` 通配 ——
+> 被 preserve 的集合越小，将来这个前缀下新增的键才照常参与孤儿检测。

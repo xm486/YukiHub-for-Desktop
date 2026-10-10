@@ -50,6 +50,13 @@
 
 ### 变更
 
+- **在线状态上报设备平台**（服务端新增 `user_presence.platform`）：每次心跳与离线上报
+  都带 `platform: "pc"`，好友那边不再把「在电脑上」显示成「手机在线」。服务端对空值
+  兜底成 `android`（为了兼容还没上报该字段的老版本 App），所以这一条是硬性要求。
+  好友列表与个人主页读入 `platform`，并在**好友列表项 / 浮层好友栏 / 个人主页状态行**
+  显示对应的线性图标（手机 / 电脑 / 网页），**离线不显示**；图标为内联 SVG
+  （24 格 viewBox、圆角线帽），不使用 emoji。
+  契约见 `docs/yukihub-presence-platform.md`
 - **仓库更名为 `YukiHub for Desktop`**（`xm486/YukiHub-for-Desktop`，GitHub 与 GitCode 同名，
   旧地址由平台 301 重定向）。同时补齐建独立仓库时漏掉的一批「本仓库地址」链接：
   关于面板的 `RepositoryURL`、User-Agent 尾部 URL、设置页「开源仓库」按钮、

@@ -202,6 +202,12 @@ export class Friend {
     "status"?: string;
 
     /**
+     * Platform 是对方最近一次心跳的设备：android / pc / web。
+     * 好友列表只在对方在线时才由服务端下发该字段；空串/未知值展示时按 android 兜底。
+     */
+    "platform"?: string;
+
+    /**
      * Activity 是「正在玩：xxx」，对方关闭分享时为空
      */
     "activity"?: string;
@@ -372,6 +378,11 @@ export class UserProfile {
     "signature"?: string;
     "avatar"?: string;
     "status"?: string;
+
+    /**
+     * android / pc / web；对方离线时为空串
+     */
+    "platform"?: string;
     "activity"?: string;
     "totalGames": number;
     "totalPlayTime": number;
@@ -430,14 +441,14 @@ export class UserProfile {
      * Creates a new UserProfile instance from a string or object.
      */
     static createFrom($$source: any = {}): UserProfile {
-        const $$createField12_0 = $$createType7;
-        const $$createField13_0 = $$createType1;
+        const $$createField13_0 = $$createType7;
+        const $$createField14_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("recentGames" in $$parsedSource) {
-            $$parsedSource["recentGames"] = $$createField12_0($$parsedSource["recentGames"]);
+            $$parsedSource["recentGames"] = $$createField13_0($$parsedSource["recentGames"]);
         }
         if ("frame" in $$parsedSource) {
-            $$parsedSource["frame"] = $$createField13_0($$parsedSource["frame"]);
+            $$parsedSource["frame"] = $$createField14_0($$parsedSource["frame"]);
         }
         return new UserProfile($$parsedSource as Partial<UserProfile>);
     }

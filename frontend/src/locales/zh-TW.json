@@ -2058,6 +2058,11 @@
       "busy": "忙碌",
       "offline": "離線"
     },
+    "platform": {
+      "android": "手機",
+      "pc": "電腦",
+      "web": "網頁"
+    },
     "me": "我",
     "groupNoticeBadge": "公告",
     "groupNoticeDesc": "僅管理員可發言",

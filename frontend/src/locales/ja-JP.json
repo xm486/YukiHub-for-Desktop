@@ -2058,6 +2058,11 @@
       "busy": "取り込み中",
       "offline": "オフライン"
     },
+    "platform": {
+      "android": "スマホ",
+      "pc": "パソコン",
+      "web": "ウェブ"
+    },
     "me": "自分",
     "groupNoticeBadge": "お知らせ",
     "groupNoticeDesc": "管理者のみ発言可",

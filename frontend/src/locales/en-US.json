@@ -2058,6 +2058,11 @@
       "busy": "Busy",
       "offline": "Offline"
     },
+    "platform": {
+      "android": "Phone",
+      "pc": "Computer",
+      "web": "Web"
+    },
     "me": "Me",
     "groupNoticeBadge": "Notice",
     "groupNoticeDesc": "Admins only",

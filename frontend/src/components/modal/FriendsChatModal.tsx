@@ -40,6 +40,10 @@ import { onWailsEvent } from "../../../src/bindings/runtime";
 import { useAccountStatus } from "../../hooks/useAccountStatus";
 import { resolveChatMediaURL } from "../../utils/chatMedia";
 import { proxiedImageSrc } from "../../utils/imageProxy";
+import {
+  presencePlatformLabelKey,
+  showsPresencePlatform,
+} from "../../utils/presencePlatform";
 import { ChatAvatar } from "../chat/ChatAvatar";
 import {
   ChatMessageMedia,
@@ -53,6 +57,7 @@ import { BetterButton } from "../ui/better/BetterButton";
 import { BetterInput } from "../ui/better/BetterInput";
 import { ContextMenu } from "../ui/ContextMenu";
 import { ModalPortal } from "../ui/ModalPortal";
+import { PresencePlatformIcon } from "../ui/PresencePlatformIcon";
 import { ConfirmModal } from "./ConfirmModal";
 
 interface FriendsChatModalProps {
@@ -1341,12 +1346,27 @@ export function FriendsChatModal({
                                         </span>
                                       )}
                                     </div>
-                                    <div className="truncate text-[11px] text-brand-500 dark:text-brand-400">
-                                      {friend.activity
-                                        || friend.lastMessage
-                                        || t(
-                                          `friendsChat.status.${friend.status || "offline"}`,
-                                        )}
+                                    <div className="flex min-w-0 items-center gap-1 text-[11px] text-brand-500 dark:text-brand-400">
+                                      {/* 平台图标（手机 / 电脑 / 网页）：离线不显示 */}
+                                      {showsPresencePlatform(friend.status) && (
+                                        <PresencePlatformIcon
+                                          platform={friend.platform}
+                                          size={13}
+                                          className="shrink-0"
+                                          title={t(
+                                            presencePlatformLabelKey(
+                                              friend.platform,
+                                            ),
+                                          )}
+                                        />
+                                      )}
+                                      <span className="truncate">
+                                        {friend.activity
+                                          || friend.lastMessage
+                                          || t(
+                                            `friendsChat.status.${friend.status || "offline"}`,
+                                          )}
+                                      </span>
                                     </div>
                                   </div>
                                   {friend.unreadCount > 0 && (

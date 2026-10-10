@@ -10,7 +10,12 @@ import { ListFriends } from "../../../bindings/yukihub/internal/service/accounts
 import { GetOverlayShortcut } from "../../../bindings/yukihub/internal/service/overlayservice";
 import { onWailsEvent } from "../../bindings/runtime";
 import { FRIEND_LIST_UPDATED_EVENT } from "../../consts/events";
+import {
+  presencePlatformLabelKey,
+  showsPresencePlatform,
+} from "../../utils/presencePlatform";
 import { ChatAvatar } from "../chat/ChatAvatar";
+import { PresencePlatformIcon } from "../ui/PresencePlatformIcon";
 import { OverlayChat } from "./OverlayChat";
 
 interface Sections {
@@ -306,11 +311,20 @@ function OverlaySection({
               {friendDisplayName(friend)}
             </div>
             <div
-              className={`truncate text-[10px] ${
+              className={`flex min-w-0 items-center gap-1 text-[10px] ${
                 highlight ? "text-emerald-400" : "text-white/50"
               }`}
             >
-              {friend.activity?.trim() || ""}
+              {/* 平台图标（手机 / 电脑 / 网页）：离线不显示 */}
+              {showsPresencePlatform(friend.status) && (
+                <PresencePlatformIcon
+                  platform={friend.platform}
+                  size={12}
+                  className="shrink-0"
+                  title={t(presencePlatformLabelKey(friend.platform))}
+                />
+              )}
+              <span className="truncate">{friend.activity?.trim() || ""}</span>
             </div>
           </div>
         </button>

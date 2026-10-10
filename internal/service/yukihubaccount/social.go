@@ -26,6 +26,17 @@ const (
 	PresenceOffline = "offline"
 )
 
+// 设备平台标识（服务端 `user_presence.platform`）。
+//
+// 只认这三个小写值；服务端对空值兜底成 android（为了不破坏还没上报该字段的
+// 老版本 App），所以**电脑端每次心跳都必须带 PresencePlatformPC**，
+// 否则用户在电脑上登录、好友那边看到的是「手机在线」。
+const (
+	PresencePlatformAndroid = "android"
+	PresencePlatformPC      = "pc"
+	PresencePlatformWeb     = "web"
+)
+
 // Friend 是好友列表里的一项。
 type Friend struct {
 	ID        string `json:"id"`
@@ -36,6 +47,9 @@ type Friend struct {
 	// Status：online / away / offline（服务端按心跳时间判定，90s 内 online，
 	// 90~300s away，超过 300s offline）
 	Status string `json:"status,omitempty"`
+	// Platform 是对方最近一次心跳的设备：android / pc / web。
+	// 好友列表只在对方在线时才由服务端下发该字段；空串/未知值展示时按 android 兜底。
+	Platform string `json:"platform,omitempty"`
 	// Activity 是「正在玩：xxx」，对方关闭分享时为空
 	Activity      string `json:"activity,omitempty"`
 	Note          string `json:"note,omitempty"`
@@ -397,6 +411,7 @@ type UserProfile struct {
 	Signature     string `json:"signature,omitempty"`
 	Avatar        string `json:"avatar,omitempty"`
 	Status        string `json:"status,omitempty"`
+	Platform      string `json:"platform,omitempty"` // android / pc / web；对方离线时为空串
 	Activity      string `json:"activity,omitempty"`
 	TotalGames    int    `json:"totalGames"`
 	TotalPlayTime int64  `json:"totalPlayTime"`
@@ -439,6 +454,7 @@ func (c *Client) UserProfile(ctx context.Context, token string, uid int64) (User
 		Signature:     pickString(body, "signature"),
 		Avatar:        pickString(body, "avatarUrl", "avatar_url", "avatar"),
 		Status:        pickString(body, "status"),
+		Platform:      pickString(body, "platform"),
 		Activity:      pickString(body, "activity"),
 		TotalGames:    int(pickInt64(body, "totalGames", "total_games")),
 		TotalPlayTime: pickInt64(body, "totalPlayTime", "total_play_time"),
@@ -656,6 +672,7 @@ func parseFriend(raw map[string]any) Friend {
 		Avatar:        pickString(raw, "avatarUrl", "avatar_url", "avatar"),
 		Signature:     pickString(raw, "signature"),
 		Status:        pickString(raw, "status"),
+		Platform:      pickString(raw, "platform"),
 		Activity:      pickString(raw, "activity"),
 		Note:          pickString(raw, "note"),
 		LastMessage:   pickString(raw, "lastMessage", "last_message"),
