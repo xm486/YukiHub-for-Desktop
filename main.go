@@ -827,6 +827,22 @@ func runGUI(
 		logShutdownStep("cleanup pending process selections", func() {
 			startService.CleanupPendingSessions()
 		})
+		// 在线状态契约 §3.3：关闭客户端时尽力上报一次下线，别让好友侧一直显示在线。
+		// 不上报也会在 10 分钟无心跳后自动判离线，所以这里限时 2 秒、失败只记日志，
+		// 不拖长退出；系统注销/关机时不发（系统可能直接掐掉进程，窗口也不够）。
+		logShutdownStep("notify presence offline", func() {
+			if isSystemSessionEnding {
+				return
+			}
+			offlineCtx, cancel := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel()
+			if err := accountService.NotifyOffline(offlineCtx); err != nil {
+				appLogger.Info("presence offline notify skipped: " + err.Error())
+			}
+		})
 		logShutdownStep("release system notification icon", func() {
 			accountService.CloseNativeNotifier()
 		})

@@ -699,6 +699,32 @@ func (s *AccountService) sendHeartbeat() error {
 	})
 }
 
+// NotifyOffline 尽力上报一次下线（**关闭客户端**时调用，退出登录走 LogoutAccount）。
+//
+// 契约（docs/yukihub-presence-platform.md §3.3）要求「退出登录 / 关闭客户端时
+// 尽力调用一次」：调不通也没关系，服务端 10 分钟收不到心跳会自动判离线。
+// 失败只记日志，绝不阻塞退出流程；调用方负责限时。
+//
+// 会**先停掉心跳循环**再上报：否则一个刚好到点的 tick 会把状态又顶回在线，
+// 好友那边要再过 10 分钟才看到你离开。
+func (s *AccountService) NotifyOffline(ctx context.Context) error {
+	if !s.isLoggedIn() {
+		return nil
+	}
+	s.stopPresence()
+
+	s.mu.Lock()
+	token := ""
+	if s.config != nil {
+		token = strings.TrimSpace(s.config.YukiHubAccountAccessToken)
+	}
+	s.mu.Unlock()
+	if token == "" {
+		return nil
+	}
+	return s.client.MarkOffline(s.resolveContext(ctx), token)
+}
+
 // resolvePlayingActivity 返回「正在玩：xxx」；没有正在进行的游玩时返回空串。
 func (s *AccountService) resolvePlayingActivity() string {
 	if s.db == nil {

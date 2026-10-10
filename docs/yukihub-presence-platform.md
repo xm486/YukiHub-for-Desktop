@@ -135,9 +135,21 @@ Body: { "platform": "pc" }     // 可选；不传则保留原值
 | `internal/service/yukihubaccount/client.go` `Heartbeat` | body 增加 `platform: PresencePlatformPC` |
 | 同上 `MarkOffline` | body 增加 `platform: PresencePlatformPC`（同时保留原有 `status` / `activity`，与旧服务端兼容） |
 | `internal/service/yukihubaccount/social.go` | 新增常量 `PresencePlatformAndroid` / `PresencePlatformPC` / `PresencePlatformWeb` |
+| `internal/service/account_service.go` `NotifyOffline` | 关闭客户端时尽力上报一次下线（见下） |
+| `main.go` 的 `shutdownApplication` | 新增 `logShutdownStep("notify presence offline", …)` |
 
 心跳沿用既有的 `AccountService.startPresence()`：登录后**立刻发一次**，
-之后每 45 秒一次（`accountPresenceInterval`），登出 / 退出时尽力调一次 `MarkOffline`。
+之后每 45 秒一次（`accountPresenceInterval`）。
+
+**关闭客户端**这条（契约 §3.3 要求「退出登录 / 关闭客户端时尽力调用一次」）
+原先只在退出登录时上报，关掉客户端要等服务端 10 分钟无心跳才判离线 ——
+好友那边就一直显示你在线。现在补上了：
+
+- `AccountService.NotifyOffline(ctx)` 先 `stopPresence()` 再上报。
+  **顺序不能反**：否则一个刚好到点的 tick 会把状态又顶回在线，这次上报就白做了。
+- 调用点限时 **2 秒**、失败只记日志，不拖长退出流程；
+  **系统注销 / 关机时不发**（系统可能直接掐掉进程，窗口也不够）。
+- 未登录时静默返回，不打无意义的 401。
 
 ### 6.2 读侧
 
@@ -177,5 +189,24 @@ PC 端目前只用到 `friends/list` 与 `user/profile`；`community/online` 与
 - `parseFriend` 对 `pc` / `android` / `web` / 空串 / 缺字段五种情况的取值
 - `UserProfile` 解析顶层 `platform`
 
-> 这组测试是防回归闸门：谁把 `platform` 从心跳里删掉，测试立刻失败
-> （已做负向验证）。
+`internal/service/account_presence_offline_test.go`：
+
+- 未登录时 `NotifyOffline` 一个请求都不发
+- 已登录时打到 `/presence/offline` 且带 `platform:"pc"`
+- 上报前必须先把心跳循环停掉（`presenceCancel` / `presenceActive` 都归零）
+
+> 这组测试是防回归闸门：谁把 `platform` 从心跳里删掉、或把 `stopPresence()`
+> 从关闭路径里删掉，测试立刻失败（心跳那条已做负向验证）。
+
+### 6.5 对服务端文档「需要确认的三件事」的回答
+
+1. **PC 端有登录态保活 / 定时任务吗？** 有，且不需要新建。
+   `AccountService.startPresence()` 在登录后启动：先立刻发一次心跳，
+   之后每 45 秒一轮，与 Android 一致。同步冷却（60 秒）是另一条独立逻辑。
+2. **未打开任何窗口时（托盘常驻）还会发心跳吗？** **会，且这是期望行为。**
+   设置里的「关闭时最小化到托盘」开启时，关闭主窗口只是 `Hide()`，
+   进程继续运行，心跳线程照常发 —— 与 Steam 桌面端一致：客户端在跑就算在线。
+   用户真正退出（托盘菜单退出 / 关掉「最小化到托盘」后关窗）时走
+   `shutdownApplication`，其中会尽力上报一次下线。
+3. **需要支持 `web` 标识吗？** 不需要。PC 原生客户端固定上报 `pc`；
+   展示侧已经能识别 `web`（归一化与图标都支持），将来做浏览器版无需改客户端。

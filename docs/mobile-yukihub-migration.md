@@ -1220,7 +1220,13 @@ exe 冒烟无 FATAL；另外用「产物 CSS + 手搓 DOM + 无头 Edge」出图
   示例只给 `{"platform":"pc"}`，但多发两个已知字段对旧服务端更保险，
   而这次改动本身不依赖它们的语义。
 - 心跳循环沿用既有的 `AccountService.startPresence()`（登录后立刻发一次，
-  之后 45 秒一轮），**没有新增定时任务**，也不存在「托盘常驻时停发」的问题。
+  之后 45 秒一轮），**没有新增定时任务**，也不存在「托盘常驻时停发」的问题
+  （关窗只是 `Hide()`，进程还活着，心跳照发 —— 与 Steam 一致，是期望行为）。
+- **补上「关闭客户端时尽力上报一次下线」**（契约 §3.3 明确要求，
+  而原先只有退出登录会调）：新增 `AccountService.NotifyOffline`，
+  在 `shutdownApplication` 里作为一步执行（限时 2 秒、失败只记日志、
+  系统注销/关机时跳过）。内部**先 `stopPresence()` 再上报** ——
+  顺序反了的话，一个刚好到点的 tick 会把状态顶回在线，这次上报就白做了。
 
 ### 20.4 读侧与展示侧
 
@@ -1244,11 +1250,14 @@ exe 冒烟无 FATAL；另外用「产物 CSS + 手搓 DOM + 无头 Edge」出图
 
 ### 20.5 验收
 
-- 新增 `internal/service/yukihubaccount/presence_platform_test.go`：心跳带
+- 新增 `internal/service/yukihubaccount/presence_platform_test.go`（5 个用例）：心跳带
   `platform:"pc"` 且不得带 `status:"offline"`、心跳必带 `activity`、离线上报带
   `platform`、`parseFriend` 五种取值、`UserProfile` 解析顶层 `platform`。
   **做了负向验证**：临时从心跳里删掉 `platform`，测试精确报出
   `心跳体里必须带 platform="pc"`，恢复后转绿。
+- 新增 `internal/service/account_presence_offline_test.go`：未登录时不发请求、
+  已登录时打到 `/presence/offline` 且带 `platform:"pc"`、上报前必须先停心跳循环。
+  **做了负向验证**：临时删掉 `stopPresence()`，第 3 条立刻失败。
 - `gofmt` 干净；`go test ./internal/service/... -p 1` 全绿（6m53s）。
 - 前端 `tsc` / `eslint`（0 error）/ `i18n:check` / `uno:check` / `vite build` 全过。
 - 三个图标另用「手搓 DOM + 无头 Edge 截图」目视验收：13px 下

@@ -56,7 +56,9 @@
   好友列表与个人主页读入 `platform`，并在**好友列表项 / 浮层好友栏 / 个人主页状态行**
   显示对应的线性图标（手机 / 电脑 / 网页），**离线不显示**；图标为内联 SVG
   （24 格 viewBox、圆角线帽），不使用 emoji。
-  契约见 `docs/yukihub-presence-platform.md`
+  另外补上「**关闭客户端时尽力上报一次下线**」（原先只有退出登录会调，
+  关掉客户端要等服务端 10 分钟无心跳才判离线）：退出最多多等 2 秒，
+  系统注销 / 关机时跳过。契约见 `docs/yukihub-presence-platform.md`
 - **仓库更名为 `YukiHub for Desktop`**（`xm486/YukiHub-for-Desktop`，GitHub 与 GitCode 同名，
   旧地址由平台 301 重定向）。同时补齐建独立仓库时漏掉的一批「本仓库地址」链接：
   关于面板的 `RepositoryURL`、User-Agent 尾部 URL、设置页「开源仓库」按钮、
