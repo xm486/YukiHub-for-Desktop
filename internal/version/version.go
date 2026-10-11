@@ -27,7 +27,8 @@ const (
 var (
 	Version                        = "0.1.0-dev" // 版本号，正式构建由 ldflags 覆盖
 	GitCommit                      = "unknown"   // Git commit hash
-	BuildTime                      = "unknown"   // 构建时间
+	BuildTime                      = "unknown"   // 构建时间（本地时间，只用于展示）
+	BuildTimeUTC                   = "unknown"   // 构建时间（UTC / RFC3339，开发版更新比较用，理由见 internal/service/update_dev_compare.go）
 	BuildMode                      = "portable"  // 构建模式：portable、installer 或 appimage
 	UpdateServiceURL               = ""          // 更新服务根地址，由正式构建注入
 	BangumiOAuthClientID           = ""          // Bangumi OAuth Client ID

@@ -100,6 +100,8 @@ import { useGameTags } from "../bigscreen/useGameTags";
 import { useTrailerHover } from "../bigscreen/useTrailerHover";
 import { VirtualGameShelf } from "../bigscreen/VirtualGameShelf";
 import { invalidateAllGameLists } from "../cache/gameCache";
+import { GAME_STATUS_BADGE_STYLES } from "../consts/gameStatusBadge";
+import { statusOptions } from "../consts/options";
 import { useAppStore } from "../store";
 import { Route as rootRoute } from "./__root";
 
@@ -119,12 +121,16 @@ const ACTION_COUNT = 4;
 /** 「隐藏游戏管理」一次最多列出多少条（够用即可，不与货架上限一致） */
 const HIDDEN_GAMES_LIMIT = 240;
 
-/** 状态循环顺序，对齐手机端 cycleStatus：未游玩 → 游玩中 → 已完成 → 未游玩 */
-const STATUS_CYCLE: enums.GameStatus[] = [
-  enums.GameStatus.StatusUnplayed,
-  enums.GameStatus.StatusPlaying,
-  enums.GameStatus.StatusCompleted,
-];
+/**
+ * 游玩状态选项：来自全库共用的 `statusOptions`，去掉「全部状态」那个空值项。
+ *
+ * 大屏以前只做三态循环（对齐手机端 `cycleStatus`），**「搁置 / 抛弃」在大屏里根本
+ * 设不了**；用户明确要求能手动选，所以这里列出全部五档。
+ */
+const STATUS_CHOICES = statusOptions.filter(
+  (option): option is { label: string; value: enums.GameStatus } =>
+    option.value !== "",
+);
 
 /** 与 Go 侧默认值保持一致：config 还没加载出来时用它们兜底 */
 const CONFIG_FALLBACK = {
@@ -142,6 +148,7 @@ type PanelKind
     | "confirm-hide"
     | "confirm-reset"
     | "game"
+    | "game-status"
     | "hidden"
     | "main"
     | "setting-choices";
@@ -589,12 +596,10 @@ function BigScreenPage() {
         if (!game) {
           return [];
         }
+        // 五档都要认出名字：以前只认「游玩中 / 已通关」，搁置与抛弃被显示成「未玩」
         const statusLabelKey
-          = game.status === enums.GameStatus.StatusPlaying
-            ? "common.playing"
-            : game.status === enums.GameStatus.StatusCompleted
-              ? "common.completed"
-              : "common.unplayed";
+          = STATUS_CHOICES.find(option => option.value === game.status)
+            ?.label ?? "common.unplayed";
         const isFavorite = favoriteIds.has(game.id);
         return [
           {
@@ -613,6 +618,8 @@ function BigScreenPage() {
             icon: "i-mdi-check-circle-outline",
             key: "status",
             label: t("bigScreen.menuStatus", { status: t(statusLabelKey) }),
+            // 说明它打开的是选择列表，而不是「点一次换一档」
+            sub: t("bigScreen.statusPickHint"),
           },
           // 自定义标题图/背景图（对齐手机端 M10：Steam 式 logo + 自定义背景）
           ...(game.logo_path
@@ -702,6 +709,25 @@ function BigScreenPage() {
             sub: t("bigScreen.menuDeleteHint"),
           },
         ];
+      }
+      // 游玩状态选择：五档一次列全，当前档打勾（写法对齐设置项的 choice 面板）。
+      // 以前是「点一次循环一档」，且只循环三档 —— 搁置 / 抛弃在大屏里根本设不了，
+      // 用户明确要求能手动选。
+      case "game-status": {
+        const game = panelGame;
+        if (!game) {
+          return [];
+        }
+        return STATUS_CHOICES.map((option) => {
+          const selected = option.value === game.status;
+          return {
+            icon:
+              GAME_STATUS_BADGE_STYLES[option.value]?.icon
+              ?? "i-mdi-check-circle-outline",
+            key: `status:${option.value}`,
+            label: `${selected ? "✓ " : "　"}${t(option.label)}`,
+          };
+        });
       }
       case "main": {
         return [
@@ -826,6 +852,9 @@ function BigScreenPage() {
         return t("bigScreen.gameMenuTitle", {
           name: panelGame?.name ?? "",
         });
+      }
+      case "game-status": {
+        return t("bigScreen.statusPickerTitle");
       }
       case "main": {
         return t("bigScreen.mainMenu");
@@ -1058,6 +1087,11 @@ function BigScreenPage() {
       if (!game?.id) {
         return;
       }
+      // 详情层只在浮层关闭时渲染（`detailsOpen && !overlayOpen`），所以菜单关闭后
+      // 它会**重新出现** —— 用户点了「游玩状态」却发现自己又被丢回详情层，看起来
+      // 像「跳进了游戏详情」。菜单是从货架出发的一次操作入口，干脆把详情层收起来，
+      // 关掉菜单就回到货架（「编辑信息」仍然按原样跳出大屏）。
+      setDetailsOpen(false);
       openPanel("game", game);
     },
     [openPanel],
@@ -1133,24 +1167,35 @@ function BigScreenPage() {
     ],
   );
 
-  const handleCycleStatus = useCallback(
-    async (game: models.Game | null | undefined) => {
+  /**
+   * 直接把游玩状态设成指定档（不再「点一次换一档」）。
+   *
+   * 面板已关闭后再调用，所以只负责写库 + 刷新 + 反馈；选了当前状态就直接返回，
+   * 不发无谓的请求，也不弹「已更新」打扰用户。
+   */
+  const handleSetStatus = useCallback(
+    async (game: models.Game | null | undefined, status: enums.GameStatus) => {
       if (!game?.id) {
         return;
       }
-      const currentIndex = STATUS_CYCLE.indexOf(game.status);
-      const nextStatus = STATUS_CYCLE[(currentIndex + 1) % STATUS_CYCLE.length];
+      if (game.status === status) {
+        return;
+      }
       try {
-        await BatchUpdateStatus([game.id], nextStatus);
+        await BatchUpdateStatus([game.id], status);
         refreshAfterMutation();
+        const labelKey
+          = STATUS_CHOICES.find(option => option.value === status)?.label ?? "";
+        const text = t("bigScreen.menuStatus", { status: t(labelKey) });
         toast.success(t("bigScreen.statusChanged"));
+        showBanner(text, "i-mdi-check-circle-outline");
       }
       catch (error) {
-        console.error("Failed to cycle big screen status:", error);
+        console.error("Failed to set big screen status:", error);
         toast.error(t("bigScreen.statusChangeFailed"));
       }
     },
-    [refreshAfterMutation, t],
+    [refreshAfterMutation, showBanner, t],
   );
 
   const handleSetTrailer = useCallback(
@@ -1358,6 +1403,15 @@ function BigScreenPage() {
           openPanel("main");
           return;
         }
+        // 二次确认面板里的「取消」退回**游戏操作菜单**（对齐手机端的「取消，不隐藏」），
+        // 而不是把整个面板关掉：用户多半只是想换个操作，不该被丢回货架重新走一遍。
+        if (
+          (panelKind === "confirm-hide" || panelKind === "confirm-delete")
+          && panelGame
+        ) {
+          openPanel("game", panelGame);
+          return;
+        }
         closePanel();
         return;
       }
@@ -1393,6 +1447,14 @@ function BigScreenPage() {
         closePanel();
         return;
       }
+      if (key.startsWith("status:")) {
+        // 选中某一档游玩状态：写库 → 刷新（状态会进分类筛选与卡片角标）
+        const status = key.slice("status:".length) as enums.GameStatus;
+        const game = panelGame;
+        closePanel();
+        void handleSetStatus(game ?? undefined, status);
+        return;
+      }
       if (key.startsWith("choice:")) {
         const value = key.slice("choice:".length);
         const setting = settingTarget
@@ -1422,8 +1484,9 @@ function BigScreenPage() {
           return;
         }
         case "status": {
-          void handleCycleStatus(panelGame ?? undefined);
-          closePanel();
+          // 打开状态选择面板（不是就地循环），选完才落库
+          const game = panelGame;
+          openPanel("game-status", game ?? undefined);
           return;
         }
         case "trailer-set": {
@@ -1528,7 +1591,6 @@ function BigScreenPage() {
       config,
       exitBigScreen,
       handleClearArt,
-      handleCycleStatus,
       handleDeleteGame,
       handleEditGame,
       handleOpenDirectory,
@@ -1536,6 +1598,7 @@ function BigScreenPage() {
       handleRemoveTrailer,
       handleSetArt,
       handleSetHidden,
+      handleSetStatus,
       handleSetTrailer,
       handleStartGame,
       handleSwitchSort,

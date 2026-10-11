@@ -1875,6 +1875,8 @@
     "gamepadDisconnected": "No gamepad",
     "gameMenuTitle": "Game actions · {{name}}",
     "menuStatus": "Play status: {{status}}",
+    "statusPickerTitle": "Set play status",
+    "statusPickHint": "Choose from all five statuses",
     "menuEdit": "Edit info",
     "menuEditHint": "Opens the full detail page",
     "menuOpenDirectory": "Open game folder",

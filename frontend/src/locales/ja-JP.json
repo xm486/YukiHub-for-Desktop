@@ -1875,6 +1875,8 @@
     "gamepadDisconnected": "ゲームパッド未接続",
     "gameMenuTitle": "ゲーム操作 · {{name}}",
     "menuStatus": "プレイ状況：{{status}}",
+    "statusPickerTitle": "プレイ状態を設定",
+    "statusPickHint": "5 段階から手動で選択",
     "menuEdit": "情報を編集",
     "menuEditHint": "詳細ページを開きます",
     "menuOpenDirectory": "ゲームフォルダを開く",

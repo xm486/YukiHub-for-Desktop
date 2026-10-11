@@ -1875,6 +1875,8 @@
     "gamepadDisconnected": "手把未連接",
     "gameMenuTitle": "遊戲操作 · {{name}}",
     "menuStatus": "遊玩狀態：{{status}}",
+    "statusPickerTitle": "設定遊玩狀態",
+    "statusPickHint": "手動選擇五檔狀態",
     "menuEdit": "編輯資訊",
     "menuEditHint": "回到完整詳情頁",
     "menuOpenDirectory": "開啟遊戲資料夾",

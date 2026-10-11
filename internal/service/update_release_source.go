@@ -328,15 +328,39 @@ func buildDevUpdateInfo(source string, slug string, release releaseResponse) (*U
 	}
 
 	info := &UpdateInfo{
-		Version:     version,
-		ReleaseDate: releaseDateOf(release),
-		Changelog:   splitChangelog(release.Body),
-		Downloads:   map[string]string{"release_page": releaseURL},
-		ReleaseURL:  releaseURL,
+		Version:          version,
+		ReleaseDate:      releaseDateOf(release),
+		Changelog:        splitChangelog(release.Body),
+		Downloads:        map[string]string{"release_page": releaseURL},
+		ReleaseURL:       releaseURL,
+		ReleaseTimestamp: releaseTimestampOf(release),
+		BuildCommit:      devBuildCommit(version),
 	}
 	applyReleaseAssets(info, release, false)
 
 	return info, nil
+}
+
+// devBuildCommit 从开发版版本号里取构建对应的提交（`0.2.5-dev.130+abc1234` → `abc1234`）。
+// 拿不到（没有 `+` 或后面不是十六进制短号）就返回空串，调用方会退回按时间判断。
+func devBuildCommit(version string) string {
+	index := strings.LastIndexByte(version, '+')
+	if index < 0 || index == len(version)-1 {
+		return ""
+	}
+	commit := strings.TrimSpace(version[index+1:])
+	if len(commit) < buildCommitShortLength || len(commit) > 40 {
+		return ""
+	}
+	for _, char := range commit {
+		isHex := (char >= '0' && char <= '9') ||
+			(char >= 'a' && char <= 'f') ||
+			(char >= 'A' && char <= 'F')
+		if !isHex {
+			return ""
+		}
+	}
+	return commit
 }
 
 // applyReleaseAssets 把发布附件映射成下载入口。includeManifest 为假时忽略清单附件
@@ -452,6 +476,17 @@ func releaseDateOf(release releaseResponse) string {
 		trimmed := strings.TrimSpace(value)
 		if len(trimmed) >= dateLength {
 			return trimmed[:dateLength]
+		}
+	}
+	return ""
+}
+
+// releaseTimestampOf 取发布的原始时间戳（保留完整精度与时区）：
+// 开发版通道要比「谁更新」，只精确到天的 ReleaseDate 不够用。
+func releaseTimestampOf(release releaseResponse) string {
+	for _, value := range []string{release.PublishedAt, release.CreatedAt} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
 		}
 	}
 	return ""

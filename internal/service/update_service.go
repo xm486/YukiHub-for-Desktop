@@ -29,6 +29,12 @@ type UpdateInfo struct {
 	Downloads         map[string]string `json:"downloads"`           // 下载链接：release_page / windows / linux
 	ReleaseURL        string            `json:"release_url"`         // 发布页地址
 	UpdateManifestURL string            `json:"update_manifest_url"` // 应用内更新清单（有才提供自动更新）
+	// ReleaseTimestamp 是发布的原始时间戳（RFC3339，取自 published_at / created_at），
+	// 开发版通道用它跟本机构建时间比「谁更新」，跨时区也比较得了。
+	ReleaseTimestamp string `json:"release_timestamp,omitempty"`
+	// BuildCommit 是发布对应的提交（开发版从版本号的 `+<短提交>` 里取），
+	// 与本机 GitCommit 相同即视为同一个构建。
+	BuildCommit string `json:"build_commit,omitempty"`
 }
 
 // UpdateCheckResult 更新检查结果
@@ -165,9 +171,17 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 	// 更新最后检查时间
 	s.updateLastCheckTime()
 
-	// 比较版本
+	// 是否有更新。
+	//
+	// 正式版按版本号比；开发版没有固定版本号（`0.0.0-dev.<提交数>+<短提交>`），
+	// 以**构建时间**为主判断，详见 update_dev_compare.go。
 	currentVer := version.Version
-	hasUpdate, err := compareVersions(currentVer, updateInfo.Version)
+	var hasUpdate bool
+	if updateChannel == UpdateChannelDev {
+		hasUpdate, err = hasDevUpdate(currentBuildInfo(), updateInfo)
+	} else {
+		hasUpdate, err = compareVersions(currentVer, updateInfo.Version)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to compare versions: %w", err)
 	}

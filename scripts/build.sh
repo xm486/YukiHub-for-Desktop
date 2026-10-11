@@ -174,6 +174,9 @@ VERSION="$(resolve_build_version "$VERSION_ARG")"
 GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
 [[ -n "$GIT_COMMIT" ]] || GIT_COMMIT="unknown"
 BUILD_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+# 构建时间再存一份 UTC/RFC3339：开发版更新检查要拿它跟发布平台的发布时间比，
+# 上面那份是给人看的本地时间裸字符串，跨时区没法比较。
+BUILD_TIME_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 LDFLAGS_BANGUMI=""
 BANGUMI_OAUTH_STATUS="disabled"
@@ -228,7 +231,7 @@ elif [[ -n "${YUKIHUB_UMBRA_REGISTRATION_TOKEN:-}" ]]; then
     exit 1
 fi
 
-LDFLAGS_BASE="-s -w $(ldflag_set 'yukihub/internal/version.Version' "$VERSION") $(ldflag_set 'yukihub/internal/version.GitCommit' "$GIT_COMMIT") $(ldflag_set 'yukihub/internal/version.BuildTime' "$BUILD_TIME")$LDFLAGS_UPDATE_SERVICE$LDFLAGS_BANGUMI$LDFLAGS_HIKARINAGI$LDFLAGS_TOUCHGAL$LDFLAGS_UMBRA"
+LDFLAGS_BASE="-s -w $(ldflag_set 'yukihub/internal/version.Version' "$VERSION") $(ldflag_set 'yukihub/internal/version.GitCommit' "$GIT_COMMIT") $(ldflag_set 'yukihub/internal/version.BuildTime' "$BUILD_TIME") $(ldflag_set 'yukihub/internal/version.BuildTimeUTC' "$BUILD_TIME_UTC")$LDFLAGS_UPDATE_SERVICE$LDFLAGS_BANGUMI$LDFLAGS_HIKARINAGI$LDFLAGS_TOUCHGAL$LDFLAGS_UMBRA"
 LDFLAGS_INSTALLER="$LDFLAGS_BASE $(ldflag_set 'yukihub/internal/version.BuildMode' 'installer')"
 LDFLAGS_APPIMAGE="$LDFLAGS_BASE $(ldflag_set 'yukihub/internal/version.BuildMode' 'appimage')"
 

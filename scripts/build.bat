@@ -118,6 +118,12 @@ if not defined GIT_COMMIT set "GIT_COMMIT=unknown"
 set "BUILD_TIME="
 for /f "tokens=*" %%i in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"') do set "BUILD_TIME=%%i"
 if not defined BUILD_TIME set "BUILD_TIME=unknown"
+
+rem UTC / RFC3339 copy: the dev update check compares it with the release
+rem publish time; the local bare timestamp above cannot be compared.
+set "BUILD_TIME_UTC="
+for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')"') do set "BUILD_TIME_UTC=%%i"
+if not defined BUILD_TIME_UTC set "BUILD_TIME_UTC=unknown"
 exit /b 0
 
 :configure_architecture
@@ -261,7 +267,7 @@ if defined YUKIHUB_UMBRA_CLIENT_ID (
     exit /b 1
 )
 
-set "LDFLAGS_BASE=-s -w -X 'yukihub/internal/version.Version=%VERSION%' -X 'yukihub/internal/version.GitCommit=%GIT_COMMIT%' -X 'yukihub/internal/version.BuildTime=%BUILD_TIME%'!LDFLAGS_UPDATE_SERVICE!!LDFLAGS_BANGUMI!!LDFLAGS_HIKARINAGI!!LDFLAGS_TOUCHGAL!!LDFLAGS_UMBRA!"
+set "LDFLAGS_BASE=-s -w -X 'yukihub/internal/version.Version=%VERSION%' -X 'yukihub/internal/version.GitCommit=%GIT_COMMIT%' -X 'yukihub/internal/version.BuildTime=%BUILD_TIME%' -X 'yukihub/internal/version.BuildTimeUTC=%BUILD_TIME_UTC%'!LDFLAGS_UPDATE_SERVICE!!LDFLAGS_BANGUMI!!LDFLAGS_HIKARINAGI!!LDFLAGS_TOUCHGAL!!LDFLAGS_UMBRA!"
 set "LDFLAGS_PORTABLE=!LDFLAGS_BASE! -X 'yukihub/internal/version.BuildMode=portable'"
 set "LDFLAGS_INSTALLER=!LDFLAGS_BASE! -X 'yukihub/internal/version.BuildMode=installer'"
 set "LDFLAGS_GUI_PORTABLE=!LDFLAGS_PORTABLE! -H windowsgui"

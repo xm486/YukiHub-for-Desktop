@@ -1875,6 +1875,8 @@
     "gamepadDisconnected": "手柄未连接",
     "gameMenuTitle": "游戏操作 · {{name}}",
     "menuStatus": "游玩状态：{{status}}",
+    "statusPickerTitle": "设置游玩状态",
+    "statusPickHint": "手动选择五档状态",
     "menuEdit": "编辑信息",
     "menuEditHint": "回到完整详情页",
     "menuOpenDirectory": "打开游戏目录",
