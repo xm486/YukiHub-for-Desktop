@@ -1774,6 +1774,7 @@ function GameDetailPage() {
           onLaunchModeChange={handleDefaultLaunchModeChange}
           onRefreshSteamSettings={handleRefreshSteamSettings}
           onSaveSteamLaunchOptions={handleSaveSteamLaunchOptions}
+          onSelectExecutable={handleSelectExecutable}
           onSelectProcessExecutable={handleSelectProcessExecutable}
           onSelectRunningProcess={() => setIsProcessSelectModalOpen(true)}
           onExportShortcut={handleExportLaunchShortcut}

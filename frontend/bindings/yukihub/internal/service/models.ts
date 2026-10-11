@@ -1248,6 +1248,11 @@ export class UpdateCheckResult {
      */
     "update_source": string;
 
+    /**
+     * 本次实际生效的通道：stable / dev
+     */
+    "update_channel": string;
+
     /** Creates a new UpdateCheckResult instance. */
     constructor($$source: Partial<UpdateCheckResult> = {}) {
         if (!("has_update" in $$source)) {
@@ -1276,6 +1281,9 @@ export class UpdateCheckResult {
         }
         if (!("update_source" in $$source)) {
             this["update_source"] = "";
+        }
+        if (!("update_channel" in $$source)) {
+            this["update_channel"] = "";
         }
 
         Object.assign(this, $$source);

@@ -15,6 +15,7 @@ interface UpdateInfo {
   release_url: string;
   update_manifest_url: string;
   update_source: string;
+  update_channel: string;
 }
 
 export function useUpdateCheck() {

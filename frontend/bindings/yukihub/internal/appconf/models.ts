@@ -490,6 +490,14 @@ export class AppConfig {
     "skip_version"?: string;
 
     /**
+     * CheckDevUpdates 为真时更新检查读**开发版通道**（CI 的滚动预发布 `dev-latest`），
+     * 否则读 `releases/latest`（只含正式版）。
+     * 默认关闭，缺失＝关闭 —— 不需要区分「没设置过」，所以用普通 bool
+     * （对比 BangumiStatusPushEnabled 那类默认开启、必须区分未设置的开关）。
+     */
+    "check_dev_updates"?: boolean;
+
+    /**
      * 背景图配置
      * 自定义背景图路径
      */

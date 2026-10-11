@@ -263,6 +263,11 @@ type AppConfig struct {
 	UpdateCheckURL       string `json:"update_check_url,omitempty"`  // 自定义更新检查 URL
 	LastUpdateCheck      string `json:"last_update_check,omitempty"` // 上次更新检查时间
 	SkipVersion          string `json:"skip_version,omitempty"`      // 跳过的版本号（用户选择忽略的更新）
+	// CheckDevUpdates 为真时更新检查读**开发版通道**（CI 的滚动预发布 `dev-latest`），
+	// 否则读 `releases/latest`（只含正式版）。
+	// 默认关闭，缺失＝关闭 —— 不需要区分「没设置过」，所以用普通 bool
+	// （对比 BangumiStatusPushEnabled 那类默认开启、必须区分未设置的开关）。
+	CheckDevUpdates bool `json:"check_dev_updates,omitempty"`
 	// 背景图配置
 	BackgroundImage             string  `json:"background_image,omitempty"`      // 自定义背景图路径
 	BackgroundBlur              int     `json:"background_blur"`                 // 背景模糊度 (0-20)

@@ -15,6 +15,10 @@ import {
 } from "../../../bindings/yukihub/internal/service/gameservice";
 import { enums } from "../../../src/bindings/models";
 import {
+  getExecutableDisplayPath,
+  resolveExecutablePath,
+} from "../../utils/gamePath";
+import {
   ALL_METADATA_SOURCES,
   getMetadataSourceIcon,
   getMetadataSourceURL,
@@ -338,45 +342,6 @@ function isRemoteCoverURL(coverURL?: string): boolean {
       || normalizedURL.startsWith("https://"))
     && !normalizedURL.includes("wails.localhost")
   );
-}
-
-function getExecutableDisplayPath(
-  executablePath: string,
-  gameDirectory?: string,
-): string {
-  const normalizedDirectory = (gameDirectory || "")
-    .replaceAll("/", "\\")
-    .replace(/\\+$/, "");
-  const normalizedExecutablePath = executablePath.replaceAll("/", "\\");
-  const directoryPrefix = `${normalizedDirectory}\\`;
-
-  if (
-    normalizedDirectory
-    && normalizedExecutablePath
-      .toLowerCase()
-      .startsWith(directoryPrefix.toLowerCase())
-  ) {
-    return executablePath.slice(directoryPrefix.length);
-  }
-
-  return executablePath;
-}
-
-function resolveExecutablePath(
-  executablePath: string,
-  gameDirectory?: string,
-): string {
-  if (
-    !executablePath
-    || !gameDirectory
-    || /^(?:[a-z]:[\\/]|[\\/]{2})/i.test(executablePath)
-  ) {
-    return executablePath;
-  }
-
-  const directory = gameDirectory.replace(/[\\/]+$/, "");
-  const separator = directory.includes("\\") ? "\\" : "/";
-  return `${directory}${separator}${executablePath.replace(/^[\\/]+/, "")}`;
 }
 
 // getTrailerDisplayName 取受管预告片路径的文件名部分（等价于后端 filepath.Base）。

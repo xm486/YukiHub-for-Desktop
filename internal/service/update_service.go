@@ -42,6 +42,7 @@ type UpdateCheckResult struct {
 	ReleaseURL        string            `json:"release_url"`         // 发布页地址
 	UpdateManifestURL string            `json:"update_manifest_url"` // 应用内更新清单
 	UpdateSource      string            `json:"update_source"`       // 本次实际生效的更新源：gitcode / github / custom
+	UpdateChannel     string            `json:"update_channel"`      // 本次实际生效的通道：stable / dev
 }
 
 // UpdateService 更新服务
@@ -129,10 +130,13 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 		}
 	}
 
-	// 取更新信息：填了自定义地址就按旧格式读，否则查代码托管平台的 releases/latest。
+	// 取更新信息：填了自定义地址就按旧格式读，否则查代码托管平台的发布。
+	// 通道由 updateChannelForConfig 决定：正式版读 releases/latest，
+	// 开发版读滚动预发布 dev-latest（设置里那个开关）。
 	var (
-		updateInfo   *UpdateInfo
-		updateSource string
+		updateInfo    *UpdateInfo
+		updateSource  string
+		updateChannel = updateChannelForConfig(&appConfig)
 	)
 
 	if customURL := strings.TrimSpace(appConfig.UpdateCheckURL); customURL != "" {
@@ -142,6 +146,13 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 			return nil, fmt.Errorf("[UpdateService] 自定义更新源不可用: %w", fetchErr)
 		}
 		updateInfo, updateSource = fetched, updateSourceCustom
+	} else if updateChannel == UpdateChannelDev {
+		fetched, source, fetchErr := s.fetchDevRelease(&appConfig)
+		if fetchErr != nil {
+			applog.LogWarningf(s.ctx, "[UpdateService] 获取开发版发布失败：%v", fetchErr)
+			return nil, fmt.Errorf("[UpdateService] 检查更新失败: %w", fetchErr)
+		}
+		updateInfo, updateSource = fetched, source
 	} else {
 		fetched, source, fetchErr := s.fetchLatestRelease(&appConfig)
 		if fetchErr != nil {
@@ -163,7 +174,9 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 
 	// 只有发布里带了更新清单、或构建期注入了自建更新服务时，才拼装自动更新地址；
 	// 都没有时留空 → 界面只提供「打开发布页」。
-	if strings.TrimSpace(updateInfo.UpdateManifestURL) == "" &&
+	// 开发版通道**不拼**：自建更新服务只发布正式版的 manifest，拼出来必然 404。
+	if updateChannel != UpdateChannelDev &&
+		strings.TrimSpace(updateInfo.UpdateManifestURL) == "" &&
 		updateSource != updateSourceCustom &&
 		goruntime.GOOS == "windows" {
 		manifestURL, manifestErr := buildOfficialUpdateManifestURL(version.UpdateServiceURL, updateInfo.Version)
@@ -192,9 +205,24 @@ func (s *UpdateService) checkUpdates(isAutoCheck bool) (*UpdateCheckResult, erro
 		ReleaseURL:        updateInfo.ReleaseURL,
 		UpdateManifestURL: updateInfo.UpdateManifestURL,
 		UpdateSource:      updateSource,
+		UpdateChannel:     updateChannel,
 	}
 
 	return result, nil
+}
+
+// updateChannelForConfig 决定本次检查走哪个通道。
+//
+// 自定义更新源（`update_check_url`）固定按正式版处理：那是用户自己的
+// version.json，跟托管平台的开发版标签没有关系。
+func updateChannelForConfig(appConfig *appconf.AppConfig) string {
+	if appConfig == nil || strings.TrimSpace(appConfig.UpdateCheckURL) != "" {
+		return UpdateChannelStable
+	}
+	if appConfig.CheckDevUpdates {
+		return UpdateChannelDev
+	}
+	return UpdateChannelStable
 }
 
 func buildOfficialUpdateManifestURL(serviceURL string, releaseVersion string) (string, error) {

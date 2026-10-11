@@ -219,6 +219,13 @@ Windows 矩阵的 `strategy.fail-fast` 是 **`false`**：任一组合作业失�
   选定的源请求失败时**自动改用另一个源**，两个都不可用才报错。
 - 版本取自 release 的 `tag_name`，更新说明取自 `body`，发布日期取自
   `published_at`（GitCode 没有该字段，退回 `created_at`）。
+- **开发版通道**（设置项 `check_dev_updates`，默认关）：勾选后改读**滚动开发版预发布
+  `dev-latest`**（`.github/workflows/autobuild.yml` 每次构建覆盖它，永远标 pre-release，
+  不影响正式版通道）。开发版的 tag 是滚动的、本身不带版本号，所以读的是发布**列表**
+  接口（`releases/latest` 会跳过预发布），版本号从发布说明的「版本号」一行、发布标题、
+  附件名三处依次提取。开发版通道不提供应用内自动更新 —— 自建更新服务的 manifest 只
+  发布正式版，拼出来必然 404 —— 只提供「打开发布页 / 下载」。
+  填了 `update_check_url` 的自定义更新源不受该开关影响，固定按正式版处理。
 - 界面里总是提供**「打开发布页」**；只有 release 里带了更新清单附件
   （文件名含 `manifest`）**且**平台是 Windows 时，才额外提供**应用内自动更新**。
   本仓库目前没有代码签名证书，所以默认只走「打开发布页」。

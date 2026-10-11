@@ -17,6 +17,7 @@ interface UpdateInfo {
   release_url: string;
   update_manifest_url: string;
   update_source: string;
+  update_channel: string;
 }
 
 interface UpdateProgress {
@@ -217,9 +218,16 @@ export function UpdateDialog({
                 <span className="text-brand-600 dark:text-brand-400">
                   {t("updateDialog.latestVersion")}
                 </span>
-                <span className="font-mono font-semibold text-accent-600 dark:text-accent-400">
-                  v
-                  {updateInfo.latest_ver}
+                <span className="flex items-center gap-2">
+                  {updateInfo.update_channel === "dev" && (
+                    <span className="rounded bg-accent-100 px-1.5 py-0.5 text-[10px] font-medium text-accent-700 dark:bg-accent-900/40 dark:text-accent-300">
+                      {t("updateDialog.devChannel")}
+                    </span>
+                  )}
+                  <span className="font-mono font-semibold text-accent-600 dark:text-accent-400">
+                    v
+                    {updateInfo.latest_ver}
+                  </span>
                 </span>
               </div>
               <div className="flex justify-between items-center text-sm">

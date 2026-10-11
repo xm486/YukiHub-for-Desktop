@@ -18,6 +18,10 @@ import {
   RestartSteamClient,
   SetGameSteamCompatibilityTool,
 } from "../../bindings/integration";
+import {
+  getExecutableDisplayPath,
+  resolveExecutablePath,
+} from "../../utils/gamePath";
 import { ConfirmModal } from "../modal/ConfirmModal";
 import { BetterActionInput } from "../ui/better/BetterActionInput";
 import { BetterButton } from "../ui/better/BetterButton";
@@ -34,6 +38,11 @@ interface GameLaunchPanelProps {
   onSaveSteamLaunchOptions?: (
     launchOptions: string,
   ) => Promise<service.SteamLaunchStatus | void>;
+  /**
+   * onSelectExecutable 打开文件选择器改「启动用可执行文件」（同一个 `game.path`，
+   * 与「编辑」页的那个输入框等价）。
+   */
+  onSelectExecutable: () => void;
   onSelectProcessExecutable: () => void;
   onSelectRunningProcess: () => void;
   onExportShortcut: () => void;
@@ -129,6 +138,7 @@ export function GameLaunchPanel({
   onLaunchModeChange,
   onRefreshSteamSettings,
   onSaveSteamLaunchOptions,
+  onSelectExecutable,
   onSelectProcessExecutable,
   onSelectRunningProcess,
   onExportShortcut,
@@ -141,9 +151,10 @@ export function GameLaunchPanel({
   const hasLocaleEmulatorPath
     = config?.locale_emulator_path && config?.locale_emulator_path.length > 0;
   const hasMagpiePath = config?.magpie_path && config?.magpie_path.length > 0;
-  const executableName = game.path
-    ? game.path.split(/[\\/]/).pop()
-    : t("gameLaunch.noPathSet");
+  const executableDisplayPath = getExecutableDisplayPath(
+    game.path || "",
+    game.game_directory,
+  );
   const supportsSteamLaunch = goos === "windows" || isLinux;
   const launchModeOptions = [
     {
@@ -451,6 +462,19 @@ export function GameLaunchPanel({
     }
   };
 
+  // 在资源管理器里定位当前启动用的可执行文件（与「编辑」页同名按钮行为一致）。
+  const handleOpenExecutableFolder = async () => {
+    if (!game.path) {
+      return;
+    }
+    try {
+      await OpenLocalPath(game.path);
+    }
+    catch {
+      toast.error(t("gameEdit.openPathFailed"));
+    }
+  };
+
   const handleOpenWinePrefix = async () => {
     if (!effectiveWinePrefixPath) {
       return;
@@ -750,9 +774,32 @@ export function GameLaunchPanel({
             <label className="block text-sm font-medium text-brand-700 dark:text-brand-300 mb-1">
               {t("gameLaunch.executable")}
             </label>
-            <div className="glass-input w-full px-3 py-2 border border-brand-300 dark:border-brand-600 rounded-md bg-brand-50 dark:bg-brand-700 text-brand-900 dark:text-white font-mono break-all text-sm">
-              {executableName}
-            </div>
+            <BetterActionInput
+              value={executableDisplayPath}
+              onChange={e =>
+                onGameChange({
+                  ...game,
+                  path: resolveExecutablePath(
+                    e.target.value,
+                    game.game_directory,
+                  ),
+                } as models.Game)}
+              placeholder={t("gameLaunch.noPathSet")}
+              className="font-mono"
+              actions={[
+                {
+                  ariaLabel: t("gameEdit.selectFile"),
+                  icon: "i-mdi-file-search-outline",
+                  onClick: onSelectExecutable,
+                },
+                {
+                  ariaLabel: t("gameEdit.openInExplorer"),
+                  disabled: !game.path,
+                  icon: "i-mdi-folder-open-outline",
+                  onClick: handleOpenExecutableFolder,
+                },
+              ]}
+            />
             <p className="mt-1 text-xs text-brand-500">
               {t("gameLaunch.executableHint")}
             </p>

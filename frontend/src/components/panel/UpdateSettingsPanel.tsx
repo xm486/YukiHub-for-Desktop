@@ -25,6 +25,7 @@ interface UpdateInfo {
   release_url: string;
   update_manifest_url: string;
   update_source: string;
+  update_channel: string;
 }
 
 export function UpdateSettingsPanel({
@@ -138,6 +139,32 @@ export function UpdateSettingsPanel({
           </div>
         </div>
 
+        {/* Dev channel */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 space-y-2">
+              <label
+                htmlFor="check_dev_updates"
+                className="block cursor-pointer text-sm font-medium text-brand-700 dark:text-brand-300"
+              >
+                {t("settings.update.devChannelLabel")}
+              </label>
+              <p className="text-xs text-brand-500 dark:text-brand-400">
+                {t("settings.update.devChannelHint")}
+              </p>
+            </div>
+            <BetterSwitch
+              id="check_dev_updates"
+              checked={formData.check_dev_updates || false}
+              onCheckedChange={checked =>
+                onChange({
+                  ...formData,
+                  check_dev_updates: checked,
+                } as appconf.AppConfig)}
+            />
+          </div>
+        </div>
+
         {/* Manual check button */}
         <div className="pt-2">
           <BetterButton
@@ -153,6 +180,13 @@ export function UpdateSettingsPanel({
               : t("settings.update.manualCheckBtn")}
           </BetterButton>
         </div>
+
+        {/* 本次检查实际走的通道：只有开发版需要说明（正式版是默认行为） */}
+        {updateInfo && !error && updateInfo.update_channel === "dev" && (
+          <p className="text-xs text-accent-600 dark:text-accent-400">
+            {t("settings.update.devChannelResult")}
+          </p>
+        )}
 
         {/* Error Info */}
         {error && (
