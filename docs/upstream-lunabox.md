@@ -225,6 +225,22 @@ GitCode 故障不拦发布。**未配置 `GITCODE_TOKEN` 时脚本自己跳过�
 不会跟着移动**（GitHub 那边靠 `git push -f`，API 做不到，`target_commitish` 只在标签
 不存在时生效），但下载到的产物与发布说明始终是最新的。
 
+### 2026-10-11 — 修 GitCode 上传卡死；构建时间统一成 UTC+8
+
+**GitCode 上传卡死**（真机报 `curl: (28) ... with 0 bytes received`、`%{http_code}` 停在 100）：
+Release 建得出来，卡在附件上传。对照官方 `gitcode-api` SDK 的实现（PUT + 原始字节 +
+原样转发 `upload_url` 返回的 headers，httpx 客户端）确认接口用法无误，问题在 curl 侧：
+
+- 强制 `--http1.1`（curl 默认协商 HTTP/2，大文件走 h2 时对方流控不开就会「一个字都不回」）
+- 显式 `-H "Expect:"` 去掉 `Expect: 100-continue`（curl 对较大 PUT 会发，httpx 不发）
+- 单个文件上限 5 分钟 → 30 分钟，另加「低于 4 KB/s 持续 60 秒判定卡住」
+- 上传前打印总量总览；每个文件打印开始/完成 + 耗时 + 均速；按体积从小到大传
+
+**构建时间统一 UTC+8**：发布说明里的构建时间（`autobuild.yml` / `update-test.yml`）与
+「关于」面板用的 `version.BuildTime`（`scripts/build.sh` / `build.bat`）都改成按 UTC+8 生成
+（CI 运行器是 UTC，之前显示差 8 小时）。**格式保持 `%Y-%m-%d %H:%M:%S` 不变** ——
+开发版更新检查的兜底解析认的就是这个格式，加时区后缀会破坏它。
+
 ### 尚未修改、计划修改
 
 - 产品界面与交互仍为上游形态，尚未替换为 YukiHub 的视觉与信息架构。

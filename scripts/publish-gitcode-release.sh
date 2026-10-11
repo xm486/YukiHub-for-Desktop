@@ -29,6 +29,10 @@
 #   GITCODE_REPO        可选，默认 xm486/YukiHub-for-Desktop
 #   GITCODE_API_BASE    可选，默认 https://api.gitcode.com/api/v5
 #   PYTHON_BIN          可选，默认 python3
+#   UPLOAD_MAX_TIME     可选，单个文件上传的最长秒数，默认 1800
+#   API_MAX_TIME        可选，单次 API 调用的最长秒数，默认 120
+#   UPLOAD_SPEED_LIMIT  可选，低于这个速率（字节/秒）视为卡住，默认 4096
+#   UPLOAD_SPEED_TIME   可选，低速持续多少秒判定为卡住，默认 60
 #
 # 未配置 GITCODE_TOKEN 时**静默跳过并返回 0** —— 令牌是可选的，没配就不该
 # 让发布流程失败。
@@ -55,6 +59,10 @@ BODY_FILE="${BODY_FILE:-}"
 RELEASE_STATUS="${RELEASE_STATUS:-latest}"
 TARGET_COMMITISH="${TARGET_COMMITISH:-}"
 FILES_DIR="${FILES_DIR:-release}"
+UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-1800}"
+API_MAX_TIME="${API_MAX_TIME:-120}"
+UPLOAD_SPEED_LIMIT="${UPLOAD_SPEED_LIMIT:-4096}"
+UPLOAD_SPEED_TIME="${UPLOAD_SPEED_TIME:-60}"
 
 case "$RELEASE_STATUS" in
   latest | pre) ;;
@@ -77,15 +85,48 @@ trap 'rm -rf "$workdir"' EXIT
 api_get() { # path outfile [额外的 curl 参数...]
   local path="$1" out="$2"
   shift 2
-  curl -sS --max-time 300 -o "$out" -w '%{http_code}' -X GET \
+  # GET 是幂等的，可以放心重试；POST / PATCH 不行（重试会重复建 Release），见 api_write
+  curl -sS --connect-timeout 20 --max-time "$API_MAX_TIME" \
+    --retry 3 --retry-delay 5 --retry-connrefused \
+    -o "$out" -w '%{http_code}' -X GET \
     -G --data-urlencode "access_token=$GITCODE_TOKEN" "$@" "$REPO_API$path"
 }
 
 api_write() { # method path outfile [额外的 curl 参数...]
   local method="$1" path="$2" out="$3"
   shift 3
-  curl -sS --max-time 300 -o "$out" -w '%{http_code}' -X "$method" \
+  curl -sS --connect-timeout 20 --max-time "$API_MAX_TIME" \
+    -o "$out" -w '%{http_code}' -X "$method" \
     "$@" "$REPO_API$path?access_token=$GITCODE_TOKEN"
+}
+
+# 人类可读的体积
+human_size() { # bytes
+  awk -v n="$1" 'BEGIN {
+    if (n >= 1073741824) printf "%.2f GB", n / 1073741824
+    else if (n >= 1048576) printf "%.1f MB", n / 1048576
+    else if (n >= 1024) printf "%.0f KB", n / 1024
+    else printf "%d B", n
+  }'
+}
+
+# 人类可读的速率（字节/秒）
+human_speed() { # bytes_per_second
+  awk -v n="$1" 'BEGIN {
+    if (n >= 1048576) printf "%.1f MB/s", n / 1048576
+    else if (n >= 1024) printf "%.0f KB/s", n / 1024
+    else printf "%d B/s", n
+  }'
+}
+
+# 出错时把响应正文带进日志。文件可能压根没建出来（curl 超时被 kill 的情况），
+# 直接 head 会额外甩一句 "head: cannot open ..."，盖住真正的错误。
+resp_body() { # file
+  if [ -f "$1" ]; then
+    head -c 300 "$1"
+  else
+    echo "(无响应正文)"
+  fi
 }
 
 # 取 JSON 里的单个字段（字符串）
@@ -176,7 +217,7 @@ case "$status" in
       --data-binary "@$workdir/patch.json" || true)"
     case "$patch_status" in
       2*) info "Release 说明已更新（HTTP $patch_status）" ;;
-      *) fail "更新 Release 失败：HTTP $patch_status $(head -c 300 "$workdir/patch_resp.json")" ;;
+      *) fail "更新 Release 失败：HTTP $patch_status $(resp_body "$workdir/patch_resp.json")" ;;
     esac
     ;;
   404)
@@ -193,36 +234,56 @@ case "$status" in
     create_status="$(api_write POST "/releases" "$workdir/create.json" "${form_args[@]}" || true)"
     case "$create_status" in
       2*) info "Release 已创建（HTTP $create_status）" ;;
-      *) fail "创建 Release 失败：HTTP $create_status $(head -c 300 "$workdir/create.json")" ;;
+      *) fail "创建 Release 失败：HTTP $create_status $(resp_body "$workdir/create.json")" ;;
     esac
     ;;
   *)
-    fail "查询 Release 失败：HTTP $status $(head -c 300 "$workdir/existing.json")"
+    fail "查询 Release 失败：HTTP $status $(resp_body "$workdir/existing.json")"
     ;;
 esac
 
 # ── 2. 上传产物 ───────────────────────────────────────────────────────────────
 [ -d "$FILES_DIR" ] || fail "找不到产物目录：$FILES_DIR"
 
-shopt -s nullglob
-files=("$FILES_DIR"/*)
-shopt -u nullglob
-
-uploaded=0
-for path in "${files[@]}"; do
+# 先按体积**从小到大**排：小文件先落地，几十秒内就能看出「这条路到底通不通」，
+# 万一中途失败也至少有一半产物已经上去了。
+# 产物名由构建脚本生成、不含空格，所以这里的按键排序 + cut 取回路径是安全的。
+file_list=()
+total_bytes=0
+while IFS= read -r path; do
   [ -f "$path" ] || continue
+  size="$(wc -c < "$path" | tr -d '[:space:]')"
+  total_bytes=$((total_bytes + size))
+  file_list+=("$path")
+done < <(
+  for path in "$FILES_DIR"/*; do
+    if [ -f "$path" ]; then
+      printf '%s\t%s\n' "$(wc -c < "$path" | tr -d '[:space:]')" "$path"
+    fi
+  done | sort -n -k1,1 | cut -f2-
+)
+
+[ "${#file_list[@]}" -gt 0 ] || fail "$FILES_DIR 里没有可上传的文件"
+
+info "待上传 ${#file_list[@]} 个文件，合计 $(human_size "$total_bytes")（单个文件最长 ${UPLOAD_MAX_TIME}s）"
+
+index=0
+uploaded=0
+for path in "${file_list[@]}"; do
+  index=$((index + 1))
   base="$(basename "$path")"
+  size="$(wc -c < "$path" | tr -d '[:space:]')"
 
   upload_status="$(api_get "/releases/$TAG/upload_url" "$workdir/upload.json" \
     --data-urlencode "file_name=$base" || true)"
   case "$upload_status" in
     2*) ;;
-    *) fail "获取 $base 的上传地址失败：HTTP $upload_status $(head -c 300 "$workdir/upload.json")" ;;
+    *) fail "获取 $base 的上传地址失败：HTTP $upload_status $(resp_body "$workdir/upload.json")" ;;
   esac
 
   upload_url="$(json_field "$workdir/upload.json" url)"
   upload_url="${upload_url%$'\r'}"
-  [ -n "$upload_url" ] || fail "上传地址为空：$(head -c 300 "$workdir/upload.json")"
+  [ -n "$upload_url" ] || fail "上传地址为空：$(resp_body "$workdir/upload.json")"
 
   header_args=()
   while IFS=$'\t' read -r key value; do
@@ -230,12 +291,38 @@ for path in "${files[@]}"; do
     [ -n "$key" ] && header_args+=(-H "$key: $value")
   done < <(json_headers "$workdir/upload.json")
 
-  # 预签名地址不能再加任何 query（会破坏签名），也不要带令牌
-  put_status="$(curl -sS --max-time 300 -o "$workdir/put_resp.bin" -w '%{http_code}' \
+  info "[$index/${#file_list[@]}] 开始上传 $base（$(human_size "$size")）…"
+
+  # 预签名地址不能再加任何 query（会破坏签名），也不要带令牌。
+  #
+  # 三个针对「上一次真挂了 5 分钟」的处理：
+  #
+  # 1. `--http1.1`：curl 默认会跟服务器协商 HTTP/2。大文件走 h2 时若对方
+  #    流控窗口不开，表现就是「连接还在、一个字都不回」—— 强制回 HTTP/1.1
+  #    排除这个变量（上传这种东西不需要 h2 的多路复用）。
+  # 2. `-H "Expect:"`：curl 对较大的 PUT 会先发 `Expect: 100-continue` 等对方
+  #    点头，日志里 `%{http_code}` 停在 100 就是它。官方 SDK（gitcode-api）走
+  #    httpx 本来不发这个头，这里显式去掉以对齐。
+  # 3. `--speed-limit/--speed-time` + `--max-time` 兜底：真卡住时一分钟内报错，
+  #    而不是一声不响地耗到超时。
+  put_out="$(curl -sS --http1.1 --connect-timeout 30 --max-time "$UPLOAD_MAX_TIME" \
+    --speed-limit "$UPLOAD_SPEED_LIMIT" --speed-time "$UPLOAD_SPEED_TIME" -H "Expect:" \
+    -o "$workdir/put_resp.bin" -w '%{http_code} %{time_total} %{speed_upload}' \
     -X PUT "${header_args[@]}" --upload-file "$path" "$upload_url" || true)"
+
+  put_status="${put_out%% *}"
+  put_rest="${put_out#* }"
+  put_time="${put_rest%% *}"
+  put_speed="${put_rest#* }"
+
   case "$put_status" in
-    2*) info "已上传 $base（$(du -h "$path" | cut -f1)）"; uploaded=$((uploaded + 1)) ;;
-    *) fail "上传 $base 失败：HTTP $put_status $(head -c 300 "$workdir/put_resp.bin")" ;;
+    2*)
+      info "[$index/${#file_list[@]}] 已上传 $base：耗时 $(awk -v t="${put_time:-0}" 'BEGIN{printf "%.1f", t}')s，均速 $(human_speed "${put_speed:-0}")"
+      uploaded=$((uploaded + 1))
+      ;;
+    *)
+      fail "上传 $base 失败：HTTP ${put_status:-无响应}，已耗时 $(awk -v t="${put_time:-0}" 'BEGIN{printf "%.1f", t}')s $(resp_body "$workdir/put_resp.bin")"
+      ;;
   esac
 done
 

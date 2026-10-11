@@ -115,8 +115,12 @@ set "GIT_COMMIT="
 for /f "delims=" %%i in ('git rev-parse --short HEAD 2^>nul') do if not defined GIT_COMMIT set "GIT_COMMIT=%%i"
 if not defined GIT_COMMIT set "GIT_COMMIT=unknown"
 
+rem Display build time in UTC+8: the CI runner clock is UTC, so a bare local
+rem timestamp would differ from a local build by 8 hours. Keep the format
+rem exactly as-is -- the dev update check falls back to parsing it as
+rem 'yyyy-MM-dd HH:mm:ss', and a timezone suffix would break that fallback.
 set "BUILD_TIME="
-for /f "tokens=*" %%i in ('powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"') do set "BUILD_TIME=%%i"
+for /f "tokens=*" %%i in ('powershell -NoProfile -Command "(Get-Date).ToUniversalTime().AddHours(8).ToString('yyyy-MM-dd HH:mm:ss')"') do set "BUILD_TIME=%%i"
 if not defined BUILD_TIME set "BUILD_TIME=unknown"
 
 rem UTC / RFC3339 copy: the dev update check compares it with the release

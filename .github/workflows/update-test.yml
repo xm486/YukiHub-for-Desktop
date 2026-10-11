@@ -631,7 +631,7 @@ jobs:
           - 版本：\`${VERSION}\`
           - 分支：\`${{ github.ref_name }}\`
           - 提交：[\`${{ steps.version_info.outputs.COMMIT }}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
-          - 构建时间：$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - 构建时间：$(TZ='Asia/Shanghai' date +"%Y-%m-%d %H:%M:%S (UTC+8)")
 
           ${UPDATE_KIND}
 

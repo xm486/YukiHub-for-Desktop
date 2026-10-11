@@ -173,9 +173,13 @@ VERSION="$(resolve_build_version "$VERSION_ARG")"
 
 GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)"
 [[ -n "$GIT_COMMIT" ]] || GIT_COMMIT="unknown"
-BUILD_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+# 展示用的构建时间固定按 UTC+8 生成：CI 运行器是 UTC，直接 date 会跟本地构建差 8 小时；
+# 本地（UTC+8）构建的结果不变，只是让 CI 与本地一致。
+# **格式不能改**：update_dev_compare.parseBuildTimestamp 的兜底分支按
+# `2006-01-02 15:04:05` 解析它，追加时区后缀会让那条兜底解析失效。
+BUILD_TIME="$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')"
 # 构建时间再存一份 UTC/RFC3339：开发版更新检查要拿它跟发布平台的发布时间比，
-# 上面那份是给人看的本地时间裸字符串，跨时区没法比较。
+# 上面那份是给人看的、跨时区没法比较。
 BUILD_TIME_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 LDFLAGS_BANGUMI=""

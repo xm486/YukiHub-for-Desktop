@@ -640,7 +640,9 @@ jobs:
       - name: 生成发布说明
         shell: bash
         run: |
-          build_timestamp="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          # 构建时间按 UTC+8 显示：运行器是 UTC，直接 date 出来会跟本地差 8 小时，
+          # 发布说明是给人看的，统一用项目所在时区（并显式标出偏移量，避免歧义）。
+          build_timestamp="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S (UTC+8)')"
           cat <<'EOF' > release_notes.md
           ## 🚀 YukiHub Development Build
 

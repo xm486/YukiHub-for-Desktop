@@ -143,6 +143,19 @@ GitCode 的托管运行器（AtomGit Action）只有 `ubuntu-latest` / `euler-la
 以及对应标签）。GitCode 建 Release 时要往它自己的仓库里建 / 认标签，本地没推过去的提交
 它不存在，这一步就会失败 —— 失败只会让那一步变红，不会拦 GitHub 的发布。
 
+**上传很慢是可预期的**：一次开发版构建的产物约 250 MB（4 个 Windows + 3 个 Linux），
+要从 GitHub 的运行器跨境传到 GitCode 的对象存储，慢是常态。脚本因此：
+
+- 按体积**从小到大**传（小文件先落地，几十秒内就能看出这条路通不通）
+- 每个文件打印「开始上传 / 已上传：耗时 + 均速」，卡住时能一眼看出是慢还是死
+- 单个文件上限 30 分钟（`UPLOAD_MAX_TIME`），另有「低于 4 KB/s 持续 60 秒即判定卡住」
+  （`UPLOAD_SPEED_LIMIT` / `UPLOAD_SPEED_TIME`），真卡住时一分钟内就报错
+- PUT 强制 HTTP/1.1、且显式去掉 `Expect: 100-continue` —— 这两条是实测「卡满 5 分钟、
+  `%{http_code}` 停在 100」之后加的（官方 `gitcode-api` SDK 走 httpx，本来就不发这个头）
+
+嫌慢可以把 `UPLOAD_*` 那几个环境变量在两步里调小/调大；如果跨境链路长期不可用，
+另一条路是让 GitCode 侧的流水线自己拉（需要先申请开通那边的代码化流水线）。
+
 ## 手动触发构建（workflow_dispatch）
 
 四个流水线支持手动运行，**都带平台勾选**；Actions 页面里的工作流名、作业名、
