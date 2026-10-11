@@ -958,6 +958,10 @@ jobs:
         # GitCode 侧只当「发布落点」：它的托管运行器只有 Linux，编不出 Windows
         # 那套产物，所以构建仍在这里做，产物再推过去。
         # 没配 GITCODE_TOKEN 时脚本自己跳过；配了但接口不通只警告，不拦发布。
+        #
+        # ⚠️ 慢是这条链路的固有属性：运行器在境外、GitCode 的对象存储在国内，
+        # 单连接实测只有十几 KB/s。所以并发多路 + 整体预算封顶，超预算的产物
+        # 记为「未上传」，不会让发布作业一直挂在那里。详见脚本头部注释。
         continue-on-error: true
         env:
           GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
@@ -969,6 +973,9 @@ jobs:
           RELEASE_STATUS: ${{ needs.validate.outputs.channel == 'prerelease' && 'pre' || 'latest' }}
           TARGET_COMMITISH: ${{ github.sha }}
           FILES_DIR: release
+          PARALLEL: '6'
+          UPLOAD_MAX_TIME: '900'
+          UPLOAD_DEADLINE: '3000'
         run: bash scripts/publish-gitcode-release.sh
 
       - name: 发布到稳定更新通道

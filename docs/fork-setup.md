@@ -143,18 +143,47 @@ GitCode 的托管运行器（AtomGit Action）只有 `ubuntu-latest` / `euler-la
 以及对应标签）。GitCode 建 Release 时要往它自己的仓库里建 / 认标签，本地没推过去的提交
 它不存在，这一步就会失败 —— 失败只会让那一步变红，不会拦 GitHub 的发布。
 
-**上传很慢是可预期的**：一次开发版构建的产物约 250 MB（4 个 Windows + 3 个 Linux），
-要从 GitHub 的运行器跨境传到 GitCode 的对象存储，慢是常态。脚本因此：
+**上传慢是这条链路的固有属性，不是脚本可以绕过去的**
 
-- 按体积**从小到大**传（小文件先落地，几十秒内就能看出这条路通不通）
-- 每个文件打印「开始上传 / 已上传：耗时 + 均速」，卡住时能一眼看出是慢还是死
-- 单个文件上限 30 分钟（`UPLOAD_MAX_TIME`），另有「低于 4 KB/s 持续 60 秒即判定卡住」
-  （`UPLOAD_SPEED_LIMIT` / `UPLOAD_SPEED_TIME`），真卡住时一分钟内就报错
-- PUT 强制 HTTP/1.1、且显式去掉 `Expect: 100-continue` —— 这两条是实测「卡满 5 分钟、
-  `%{http_code}` 停在 100」之后加的（官方 `gitcode-api` SDK 走 httpx，本来就不发这个头）
+GitHub 托管运行器在境外，GitCode 的对象存储在国内，这条跨境链路**单连接**上传吞吐
+只有十几 KB/s 量级 —— 一次开发版构建约 250 MB（4 个 Windows + 3 个 Linux），
+单连接要 4 小时以上。历史记录：第一次跑卡满 5 分钟、`%{http_code}` 停在 `100`；
+换成 HTTP/1.1 并去掉 `Expect` 之后仍然卡满 30 分钟。
 
-嫌慢可以把 `UPLOAD_*` 那几个环境变量在两步里调小/调大；如果跨境链路长期不可用，
-另一条路是让 GitCode 侧的流水线自己拉（需要先申请开通那边的代码化流水线）。
+> **怎么确认「是慢不是死」**：脚本带的 `--speed-limit 4096 --speed-time 60` 在
+> 30 分钟里一次都没触发。本地实测过这个开关的行为 —— 把服务端做成"收下就不理"
+> 时，它 17 秒就报 `Operation too slow`（`%{size_upload}` 停在缓冲区写满的 4.6 MB）。
+> 既然 60 秒一次都没断，就说明数据一直在流，只是慢（> 4 KB/s）。这条是有意留在脚本里的
+> **判别器**，别删。
+
+所以脚本现在的策略是「**把单连接吞吐叠加起来 + 给整件事封顶**」：
+
+- **多路并发**（`PARALLEL`，工作流里给 6）：跨境慢多半受单连接丢包/窗口限制，
+  并发是最直接的杠杆
+- 单个文件单次上限 `UPLOAD_MAX_TIME`（900s）+ **整个上传阶段的总预算**
+  `UPLOAD_DEADLINE`（3000s）；预算用尽就把剩下的文件记为「未上传」并打 warning，
+  **不会让作业挂在那里几小时**
+- 每个文件失败后重试 `UPLOAD_RETRY` 次（第二次换回 curl 默认协议栈），每次重新取
+  预签名地址（旧的可能已过期）
+- 每个文件都打印**实际发出的字节数与均速**，让「Slow」和「Dead」在日志里长得不一样
+- 先按体积从小到大传；**已有的同名附件直接跳过**（重跑同一批产物时省掉几十分钟）
+- 出错时**继续传剩下的**，最后汇总「成功 N / 失败 M / 超预算未上传 K」
+
+**控制镜像范围**：`autobuild.yml` 的 `gitcode_mirror` 可选
+「全部产物 / 仅 Windows amd64（setup + portable，约 78 MB）/ 不同步」——
+不想等几十分钟时选中间那个，它映射到 `GITCODE_INCLUDE=windows-amd64`。
+`release.yml` 没有这个输入，固定全量。
+
+如果跨境链路长期不可用，另一条路是让 GitCode 侧的流水线自己拉
+（需要先向 AtomGit 客服申请开通代码化流水线）。也可以在本机跑同一个脚本，
+把产物从 GitHub 下载下来再推上去（国内出口通常快得多）：
+
+```bash
+cd "YukiHub for Desktop"
+GITCODE_TOKEN=<你的令牌> TAG=dev-latest RELEASE_STATUS=pre \
+  BODY_FILE=release_notes.md FILES_DIR=release \
+  bash scripts/publish-gitcode-release.sh
+```
 
 ## 手动触发构建（workflow_dispatch）
 

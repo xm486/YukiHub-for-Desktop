@@ -33,6 +33,15 @@ on:
         required: false
         type: boolean
         default: true
+      gitcode_mirror:
+        description: '同步到 GitCode 的产物范围。注意：构建在境外运行器上、GitCode 对象存储在国内，这条跨境链路实测单连接只有十几 KB/s，全量 250 MB 要很久（多路并发能叠加，但别指望快）。只想让 GitCode 用户拿到最常用的那个包就选「仅 Windows amd64」'
+        required: false
+        type: choice
+        default: '全部产物'
+        options:
+          - '全部产物'
+          - '仅 Windows amd64（setup + portable）'
+          - '不同步'
 
 # 运行列表里直接看出本次构建了哪些平台、走哪种发布方式
 run-name: 开发版构建${{ inputs.build_windows && ' · Windows' || '' }}${{ inputs.build_linux && ' · Linux' || '' }} · ${{ inputs.publish || '仅构建产物（不发布）' }}
@@ -54,6 +63,8 @@ jobs:
       commit: ${{ steps.version.outputs.commit }}
       commit-count: ${{ steps.version.outputs.commit-count }}
       publish: ${{ steps.publish.outputs.mode }}
+      gitcode-scope: ${{ steps.gitcode.outputs.scope }}
+      gitcode-include: ${{ steps.gitcode.outputs.include }}
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -112,6 +123,35 @@ jobs:
           else
             echo "::notice::本次将覆盖滚动预发布 dev-latest。"
           fi
+
+      - name: 解析 GitCode 镜像范围
+        id: gitcode
+        shell: bash
+        env:
+          INPUT_MIRROR: ${{ inputs.gitcode_mirror }}
+        run: |
+          set -euo pipefail
+          # 中文选项在这里归一成 slug，下游只认 slug（与 publish 同样的套路）。
+          case "$INPUT_MIRROR" in
+            '' | '全部产物' | all)
+              scope=all
+              include=''
+              ;;
+            '仅 Windows amd64（setup + portable）' | win-amd64)
+              scope=win-amd64
+              include='windows-amd64'
+              ;;
+            '不同步' | none)
+              scope=none
+              include=''
+              ;;
+            *)
+              echo "::error::未知的 GitCode 镜像范围：$INPUT_MIRROR"
+              exit 1
+              ;;
+          esac
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "include=$include" >> "$GITHUB_OUTPUT"
 
   build-windows:
     name: 构建 Windows ${{ matrix.arch }} / ${{ matrix.mode }}
@@ -719,6 +759,11 @@ jobs:
         # 同上：GitCode 只做发布落点。注意它没有「删除 Release」接口，滚动预发布
         # 每构建一次就会多攒一批附件，偶尔需要去网页端删掉 dev-latest 重建。
         # 没配 GITCODE_TOKEN 时脚本自己跳过；接口不通只警告，不拦发布。
+        #
+        # ⚠️ 慢是这条链路的固有属性：运行器在境外、GitCode 的对象存储在国内，
+        # 单连接实测只有十几 KB/s，所以这里并发多路 + 给整体预算封顶，
+        # 超预算的产物记为「未上传」而不是让作业一直挂着。详见脚本头部注释。
+        if: ${{ needs.version.outputs.gitcode-scope != 'none' }}
         continue-on-error: true
         env:
           GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
@@ -729,4 +774,8 @@ jobs:
           RELEASE_STATUS: pre
           TARGET_COMMITISH: ${{ github.sha }}
           FILES_DIR: release
+          GITCODE_INCLUDE: ${{ needs.version.outputs.gitcode-include }}
+          PARALLEL: '6'
+          UPLOAD_MAX_TIME: '900'
+          UPLOAD_DEADLINE: '3000'
         run: bash scripts/publish-gitcode-release.sh
