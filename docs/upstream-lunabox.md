@@ -199,6 +199,32 @@ Windows 安装版在 CI 上直接退出，报
   同一套路径换算（`frontend/src/utils/gamePath.ts`，「编辑」页改为引用它，规则不再
   分叉）：可直接手输、点按钮重选、在资源管理器中定位。标签也统一成「可执行文件」。
 
+### 2026-10-11 — 产物同步发布到 GitCode（镜像仓库）
+
+GitCode 只做**发布落点**，CI 仍在 GitHub 上跑。原因是 GitCode 的 CI（AtomGit Action）
+接不了这套流水线：
+
+- 工作流目录是 `.gitcode/workflows/`，**不读 `.github/workflows/`**；`uses` 要写成
+  `checkout` / `setup-go` 这种 GitCode 插件名，`actions/checkout@v4` 这类 GitHub
+  命名空间解析不到；上下文从 `github.*` 变成 `atomgit.*`，写输出用 `$ATOMGIT_OUTPUT`
+- **托管运行器只有 Linux**（`ubuntu-latest` / `euler-latest`，三段式 `[ubuntu-latest, x64, small]`），
+  没有 Windows —— 便携版 / 安装版 / NSIS / MinGW / SignPath 全跑不了
+  （能搬的只有 `frontend.yml`、`internal.yml` 的 `checks-linux`、`linux-package.yml`、
+  `migration-e2e.yml` 这几条 Linux 侧的）
+- 该能力还需要先向 AtomGit 客服申请开通
+
+实现：`scripts/publish-gitcode-release.sh` 调 GitCode OpenAPI v5 —— 查 Release 是否存在，
+不存在则 `POST /releases`、已存在则 `PATCH /releases/{tag}` 更新名称与说明，再逐个文件
+`GET /releases/{tag}/upload_url` 拿 OBS 预签名地址、`PUT` 上传。接入 `release.yml` 的
+「创建 Release」作业与 `autobuild.yml` 的「发布开发版」作业，都是 `continue-on-error`，
+GitCode 故障不拦发布。**未配置 `GITCODE_TOKEN` 时脚本自己跳过并正常退出**，所以不配也
+不影响现有流水线。`update-test.yml` 刻意不同步（发的是 `1.11.0-test.1` 这类一次性测试版）。
+
+两个由接口能力决定的限制：① GitCode **没有删除 Release / 附件的接口**，滚动预发布
+`dev-latest` 每构建一次就多攒一批附件，需要偶尔去网页端删掉重建；② **`dev-latest` 标签
+不会跟着移动**（GitHub 那边靠 `git push -f`，API 做不到，`target_commitish` 只在标签
+不存在时生效），但下载到的产物与发布说明始终是最新的。
+
 ### 尚未修改、计划修改
 
 - 产品界面与交互仍为上游形态，尚未替换为 YukiHub 的视觉与信息架构。

@@ -712,3 +712,19 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 同步发布到 GitCode
+        # 同上：GitCode 只做发布落点。注意它没有「删除 Release」接口，滚动预发布
+        # 每构建一次就会多攒一批附件，偶尔需要去网页端删掉 dev-latest 重建。
+        # 没配 GITCODE_TOKEN 时脚本自己跳过；接口不通只警告，不拦发布。
+        continue-on-error: true
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITCODE_REPO: ${{ github.repository }}
+          TAG: dev-latest
+          NAME: 开发版 - ${{ needs.version.outputs.version }}
+          BODY_FILE: release_notes.md
+          RELEASE_STATUS: pre
+          TARGET_COMMITISH: ${{ github.sha }}
+          FILES_DIR: release
+        run: bash scripts/publish-gitcode-release.sh

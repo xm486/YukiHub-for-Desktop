@@ -58,6 +58,12 @@
   `<基础版本>-dev.<提交数>+<短提交>`，首个 tag 之前基础版本恒为 `0.0.0`，提交数还会被
   rebase / squash 弄回退），所以 ① 提交号相同即同一个构建、不提示；② 两边都有时间就比
   时间；③ 时间拿不到才退回版本号。构建脚本额外注入 `BuildTimeUTC`（RFC3339/UTC）
+- **产物同步发布到 GitCode 镜像仓库**：GitCode 的托管运行器只有 Linux 镜像（AtomGit
+  Action，工作流目录是 `.gitcode/workflows/`），编不出 Windows 那套产物，所以
+  **构建仍留在 GitHub，产物推过去**。新增 `scripts/publish-gitcode-release.sh` 调
+  GitCode OpenAPI v5 建 / 改 Release 并上传附件，接在 `release.yml`「创建 Release」与
+  `autobuild.yml`「发布开发版」两步之后，标了 `continue-on-error` —— GitCode 出问题
+  不会拦住 GitHub 的发布。**加一个 `GITCODE_TOKEN` Secret 即启用；不配则静默跳过。**
 
 ### 变更
 

@@ -954,6 +954,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 同步发布到 GitCode
+        # GitCode 侧只当「发布落点」：它的托管运行器只有 Linux，编不出 Windows
+        # 那套产物，所以构建仍在这里做，产物再推过去。
+        # 没配 GITCODE_TOKEN 时脚本自己跳过；配了但接口不通只警告，不拦发布。
+        continue-on-error: true
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITCODE_REPO: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          NAME: ${{ steps.get_version.outputs.VERSION }}
+          BODY_FILE: release_notes.md
+          # 预览版在 GitCode 那边也标预发布
+          RELEASE_STATUS: ${{ needs.validate.outputs.channel == 'prerelease' && 'pre' || 'latest' }}
+          TARGET_COMMITISH: ${{ github.sha }}
+          FILES_DIR: release
+        run: bash scripts/publish-gitcode-release.sh
+
       - name: 发布到稳定更新通道
         # 只有「正式版」才写入稳定通道（预览版与仅构建产物都不写）
         if: ${{ needs.validate.outputs.channel == 'release' }}

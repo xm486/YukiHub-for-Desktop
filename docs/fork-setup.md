@@ -96,8 +96,52 @@
 - `UPDATE_S3_ACCESS_KEY_ID`、`UPDATE_S3_SECRET_ACCESS_KEY`
 - `YUKIHUB_BANGUMI_CLIENT_SECRET`、`YUKIHUB_TOUCHGAL_TOKEN`、`YUKIHUB_UMBRA_REGISTRATION_TOKEN`
 - `SIGNPATH_API_TOKEN`（若使用 SignPath）
+- `GITCODE_TOKEN`（可选，把产物同步发布到 GitCode 镜像仓库用；不配就跳过）
 
 这些工作流目前仅支持手动触发或 tag 触发，在配置完成前不会产生失败的自动构建。
+
+### 同步发布到 GitCode（镜像仓库）
+
+`gitcode` 是本仓库的镜像远端，但**它不读 `.github/workflows/`，它的 CI 也编不出本仓库的产物**：
+GitCode 的托管运行器（AtomGit Action）只有 `ubuntu-latest` / `euler-latest` 两种 Linux 镜像
+（`runs-on` 写成 `[ubuntu-latest, x64, small]` 这种三段式），没有 Windows ——
+便携版 / 安装版、NSIS、MinGW、SignPath 签名一个都跑不了。它的工作流目录是
+`.gitcode/workflows/`，`uses` 要写成 `checkout` / `setup-go` 这种 GitCode 插件名
+（`actions/checkout@v4` 这类 GitHub 命名空间解析不到），上下文也从 `github.*` 换成 `atomgit.*`。
+更前置的一点：该能力需要先向 AtomGit 客服申请开通。
+
+所以本仓库**不把 CI 搬到 GitCode**，而是「构建留在 GitHub，产物推过去」：
+
+- 脚本 `scripts/publish-gitcode-release.sh`：调 GitCode OpenAPI v5
+  （查 Release 是否存在 → 建或改 → 取附件上传地址 → PUT 文件本体）
+- 接入点：`release.yml` 的「创建 Release」作业、`autobuild.yml` 的「发布开发版」作业
+  各加一步「同步发布到 GitCode」
+- 两处都是 `continue-on-error`：**GitCode 那边出问题不会拦住 GitHub 的发布**
+
+启用方式就是加一个 Secret：
+
+| 名称 | 内容 |
+| --- | --- |
+| `GITCODE_TOKEN` | GitCode 个人访问令牌（需要该仓库写权限） |
+
+**没配它时脚本自己打印一条「跳过」并正常退出**（不算失败），所以不配也不影响现有流水线。
+
+两个限制来自 GitCode 接口本身，不是实现取舍：
+
+1. **没有「删除 Release / 删除附件」的接口**。滚动预发布 `dev-latest` 每构建一次就多攒一批
+   附件（开发版产物名里带版本号，不会覆盖同名的旧文件）。偶尔去网页端把 `dev-latest`
+   删掉、等下次构建重建即可。正式版不受影响。
+2. **`dev-latest` 标签不会跟着移动**。GitHub 那边靠 `git push -f` 把标签挪到新提交，
+   GitCode API 做不到（`target_commitish` 只在标签尚不存在时起作用），所以 GitCode 侧
+   这个标签指向第一次同步时的提交。**下载到的产物和 Release 说明始终是最新的**，
+   只有「对应源码快照」是旧的。
+
+`update-test.yml` 刻意**不**同步：它发的是 `1.11.0-test.1` 这类一次性测试版本，
+不该污染 GitCode 的 Releases 页。
+
+还有一条容易忘的前提：**发布前要确保那批提交已经在 GitCode 上**（`git push gitcode main`
+以及对应标签）。GitCode 建 Release 时要往它自己的仓库里建 / 认标签，本地没推过去的提交
+它不存在，这一步就会失败 —— 失败只会让那一步变红，不会拦 GitHub 的发布。
 
 ## 手动触发构建（workflow_dispatch）
 
