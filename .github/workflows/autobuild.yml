@@ -758,13 +758,16 @@ jobs:
       - name: 同步发布到 GitCode
         # 同上：GitCode 只做发布落点。注意它没有「删除 Release」接口，滚动预发布
         # 每构建一次就会多攒一批附件，偶尔需要去网页端删掉 dev-latest 重建。
-        # 没配 GITCODE_TOKEN 时脚本自己跳过；接口不通只警告，不拦发布。
+        # 没配 GITCODE_TOKEN 时脚本自己跳过。
+        # 失败语义（脚本内实现）：一个文件都没上去 → 这一步变红（不设 continue-on-error，
+        # 让失败可见）；部分成功 → 只打 warning，整体算成功。这一步是作业的最后一步、
+        # 也没有下游作业依赖它，所以变红只影响本次运行的结论，GitHub Release 早已发布完。
         #
-        # ⚠️ 慢是这条链路的固有属性：运行器在境外、GitCode 的对象存储在国内，
-        # 单连接实测只有十几 KB/s，所以这里并发多路 + 给整体预算封顶，
-        # 超预算的产物记为「未上传」而不是让作业一直挂着。详见脚本头部注释。
+        # ⚠️ 慢是这条链路的固有属性：运行器在境外、GitCode 的对象存储在国内。
+        # 所以并发多路、单文件给到 3 小时、整体预算 5 小时 —— 5 小时是上限：
+        # GitHub 托管运行器的单个作业最长 6 小时且不可提额（官方文档），
+        # 这里要给前面几步留余量。详见脚本头部注释。
         if: ${{ needs.version.outputs.gitcode-scope != 'none' }}
-        continue-on-error: true
         env:
           GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
           GITCODE_REPO: ${{ github.repository }}
@@ -776,6 +779,6 @@ jobs:
           FILES_DIR: release
           GITCODE_INCLUDE: ${{ needs.version.outputs.gitcode-include }}
           PARALLEL: '8'
-          UPLOAD_MAX_TIME: '3600'
-          UPLOAD_DEADLINE: '7200'
+          UPLOAD_MAX_TIME: '10800'
+          UPLOAD_DEADLINE: '18000'
         run: bash scripts/publish-gitcode-release.sh

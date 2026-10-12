@@ -26,10 +26,10 @@
 #
 # 差 50 倍。既然这一跳只能这么慢，就把**时间给足、别中途掐**：
 #   - 多路并发（PARALLEL，工作流给 8）：7 个产物一批全开，不必分两批等；
-#   - 单文件单次上限 UPLOAD_MAX_TIME（默认 60 分钟）。按实测最慢 20 KB/s 算，
-#     最大的 43 MB 要 ~2200s —— 之前卡 900s 是**必然超时**，不是网络突然变差；
-#   - 整体预算 UPLOAD_DEADLINE（默认 2 小时）：只用来兜「彻底不通」的情况，
-#     超了把剩下的记为「未上传」并打 warning；
+#   - 单文件单次上限 UPLOAD_MAX_TIME（默认 3 小时）：按实测最慢 20 KB/s 算，
+#     3 小时能覆盖到单文件约 210 MB —— 之前卡 900s 是**必然超时**，不是网络波动；
+#   - 整体预算 UPLOAD_DEADLINE（默认 5 小时）：上限受 GitHub「单作业最长 6 小时」
+#     约束（官方文档，且不可提额）。超预算把剩下的记为「未上传」并打 warning；
 #   - 每个文件都打印**实际发出的字节数与均速**，慢还是卡一眼可见；
 #   - --speed-limit **默认关闭**：预签名 PUT 不能断点续传，中途掐掉等于把
 #     已发出的字节全扔了（真机日志里就这么白扔过 11.8 MB）。
@@ -55,8 +55,11 @@
 #   PYTHON_BIN          可选，默认 python3
 #   GITCODE_INCLUDE     可选，只上传文件名含这些子串的文件（空格分隔），默认全部
 #   PARALLEL            可选，并发上传路数，1 = 串行，默认 4
-#   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 3600（60 分钟）
-#   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 7200（2 小时）
+#   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 10800（3 小时）
+#   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 18000（5 小时）。
+#                       **上限来自 GitHub**：托管运行器的单个作业最长 6 小时，
+#                       且文档明确「不能提额」，所以这里最多给到 5 小时，
+#                       留出前面若干步骤（拉代码/下载制品/建 Release）的余量
 #   UPLOAD_RETRY        可选，单个文件失败后重试次数，默认 1（第二次换协议栈试）
 #   API_MAX_TIME        可选，单次 API 调用的最长秒数，默认 120
 #   UPLOAD_SPEED_LIMIT  可选，低于这个速率（字节/秒）视为停滞，**默认 0＝关闭**。
@@ -91,8 +94,8 @@ TARGET_COMMITISH="${TARGET_COMMITISH:-}"
 FILES_DIR="${FILES_DIR:-release}"
 GITCODE_INCLUDE="${GITCODE_INCLUDE:-}"
 PARALLEL="${PARALLEL:-4}"
-UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-3600}"
-UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-7200}"
+UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-10800}"
+UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-18000}"
 UPLOAD_RETRY="${UPLOAD_RETRY:-1}"
 API_MAX_TIME="${API_MAX_TIME:-120}"
 UPLOAD_SPEED_LIMIT="${UPLOAD_SPEED_LIMIT:-0}"
@@ -556,8 +559,17 @@ if [ "$elapsed" -gt 0 ]; then
   info "上传阶段耗时 ${elapsed}s，实际发出 $(human_size "$moved_bytes")，平均 $(human_speed $((moved_bytes / elapsed)))"
 fi
 
-if [ "$failed" -gt 0 ]; then
-  fail "完成：成功 $uploaded，失败 $failed，超预算未传 $timed_out（跳过 $skipped）→ $RELEASE_PAGE"
+# 失败语义（按仓库维护者的要求）：
+#   一个都没上去      → 硬失败（步骤变红，让人看见）
+#   上去了但有几个失败 → 只打 warning，整体算成功
+# 后者是有意的：同名附件会跳过，所以「部分成功」时重跑一次只会补传缺的那几个，
+# 很便宜；不必因为一个文件运气不好就把整条发布流程报成红的。
+if [ "$uploaded" -eq 0 ]; then
+  fail "一个文件都没传上去（失败 $failed，超预算未传 $timed_out，跳过 $skipped）→ $RELEASE_PAGE"
 fi
 
-info "完成：成功 $uploaded，超预算未传 $timed_out（跳过 $skipped）→ $RELEASE_PAGE"
+if [ "$failed" -gt 0 ] || [ "$timed_out" -gt 0 ]; then
+  echo "::warning::[gitcode] 部分产物没传上去：成功 $uploaded，失败 $failed，超预算未传 $timed_out。重跑一次会自动跳过已上传的同名附件，只补缺的。"
+fi
+
+info "完成：成功 $uploaded，失败 $failed，超预算未传 $timed_out（跳过 $skipped）→ $RELEASE_PAGE"

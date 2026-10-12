@@ -954,30 +954,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 同步发布到 GitCode
-        # GitCode 侧只当「发布落点」：它的托管运行器只有 Linux，编不出 Windows
-        # 那套产物，所以构建仍在这里做，产物再推过去。
-        # 没配 GITCODE_TOKEN 时脚本自己跳过；配了但接口不通只警告，不拦发布。
-        #
-        # ⚠️ 慢是这条链路的固有属性：运行器在境外、GitCode 的对象存储在国内，
-        # 单连接实测只有十几 KB/s。所以并发多路 + 整体预算封顶，超预算的产物
-        # 记为「未上传」，不会让发布作业一直挂在那里。详见脚本头部注释。
-        continue-on-error: true
-        env:
-          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
-          GITCODE_REPO: ${{ github.repository }}
-          TAG: ${{ needs.validate.outputs.tag }}
-          NAME: ${{ steps.get_version.outputs.VERSION }}
-          BODY_FILE: release_notes.md
-          # 预览版在 GitCode 那边也标预发布
-          RELEASE_STATUS: ${{ needs.validate.outputs.channel == 'prerelease' && 'pre' || 'latest' }}
-          TARGET_COMMITISH: ${{ github.sha }}
-          FILES_DIR: release
-          PARALLEL: '8'
-          UPLOAD_MAX_TIME: '3600'
-          UPLOAD_DEADLINE: '7200'
-        run: bash scripts/publish-gitcode-release.sh
-
       - name: 发布到稳定更新通道
         # 只有「正式版」才写入稳定通道（预览版与仅构建产物都不写）
         if: ${{ needs.validate.outputs.channel == 'release' }}
@@ -992,3 +968,29 @@ jobs:
             --content-type "application/json" \
             --cache-control "public,max-age=60" \
             --endpoint-url "$UPDATE_S3_ENDPOINT"
+
+      - name: 同步发布到 GitCode
+        # GitCode 侧只当「发布落点」：它的托管运行器只有 Linux，编不出 Windows
+        # 那套产物，所以构建仍在这里做，产物再推过去。
+        # 没配 GITCODE_TOKEN 时脚本自己跳过。
+        # 失败语义（脚本内实现）：一个文件都没上去 → 这一步变红；部分成功 → 只 warning。
+        # 这一步是作业的最后一步、也没有下游作业依赖它，GitHub Release 早已发布完。
+        #
+        # ⚠️ 慢是这条链路的固有属性：运行器在境外、GitCode 的对象存储在国内。
+        # 并发多路、单文件 3 小时、整体预算 5 小时 —— 5 小时是上限：GitHub 托管
+        # 运行器的单个作业最长 6 小时且不可提额（官方文档），要给前面几步留余量。
+        # 本步是作业的最后一步，失败不会连累任何下游步骤（稳定通道已在上一步写完）。
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITCODE_REPO: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          NAME: ${{ steps.get_version.outputs.VERSION }}
+          BODY_FILE: release_notes.md
+          # 预览版在 GitCode 那边也标预发布
+          RELEASE_STATUS: ${{ needs.validate.outputs.channel == 'prerelease' && 'pre' || 'latest' }}
+          TARGET_COMMITISH: ${{ github.sha }}
+          FILES_DIR: release
+          PARALLEL: '8'
+          UPLOAD_MAX_TIME: '10800'
+          UPLOAD_DEADLINE: '18000'
+        run: bash scripts/publish-gitcode-release.sh
