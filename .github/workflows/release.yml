@@ -973,9 +973,9 @@ jobs:
           RELEASE_STATUS: ${{ needs.validate.outputs.channel == 'prerelease' && 'pre' || 'latest' }}
           TARGET_COMMITISH: ${{ github.sha }}
           FILES_DIR: release
-          PARALLEL: '6'
-          UPLOAD_MAX_TIME: '2700'
-          UPLOAD_DEADLINE: '5400'
+          PARALLEL: '8'
+          UPLOAD_MAX_TIME: '3600'
+          UPLOAD_DEADLINE: '7200'
         run: bash scripts/publish-gitcode-release.sh
 
       - name: 发布到稳定更新通道

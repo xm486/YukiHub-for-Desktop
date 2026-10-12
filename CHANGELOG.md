@@ -145,8 +145,8 @@
     `UPLOAD_DEADLINE` 3000s → **5400s**；`--speed-limit` **默认关闭** ——
     预签名 PUT 不能断点续传，真机日志里它把已发出的 11.8 MB 白扔了；
   - **正解：新增 `scripts/mirror-github-release-to-gitcode.sh`**，两种用法：
-    ① **本地已有产物**（推荐，最快）—— 你本来就会下载便携版到本地测试，
-      那份文件直接推上去，完全不碰 GitHub，纯境内上传；
+    ① **推本地已有的产物**（最快）—— 手头有那些安装包/压缩包时，
+      直接推上去，完全不碰 GitHub，纯境内上传；
     ② 从 GitHub 拉 —— 先从 GitHub Release 下载，再调 `publish-gitcode-release.sh`
     上传到 GitCode（建/更新 Release、并发上传、跳过同名附件全复用同一套逻辑）。
     CI 里那一步保留，作为手边没有国内机器时的兜底

@@ -17,27 +17,26 @@
 #
 # ⚠️ 上传慢是这条链路的固有属性，不是脚本 bug
 #
-# ⚠️ 上传慢是这条链路的固有属性，不是脚本 bug
-#
 # GitHub 托管运行器在境外，GitCode 的文件服务（file.gitcode.com）在国内，
 # 跨境那一跳就是全部瓶颈。实测数据（见 docs/fork-setup.md）：
 #
 #   方向                          速率
-#   GitHub Actions → GitCode 上传  单连接 16-43 KB/s，6 路并发合计 ~160 KB/s
+#   GitHub Actions → GitCode 上传  单连接 16-43 KB/s，多路并发合计一百多 KB/s
 #   国内机器       → GitCode 下载  8.2 MB/s（126 MB / 15.3s）
 #
-# 差 50 倍。所以脚本把「单连接吞吐叠加 + 给整件事封顶」做到位：
-#   - 默认**多路并发**（PARALLEL，默认 6），并发是真的生效的（日志墙钟能对上）；
-#   - 每个文件有单次尝试上限（UPLOAD_MAX_TIME，默认 45 分钟），整体有总预算
-#     （UPLOAD_DEADLINE，默认 90 分钟），超了就把剩下的记为「未上传」，
-#     **不会让作业卡到天荒地老**；
+# 差 50 倍。既然这一跳只能这么慢，就把**时间给足、别中途掐**：
+#   - 多路并发（PARALLEL，工作流给 8）：7 个产物一批全开，不必分两批等；
+#   - 单文件单次上限 UPLOAD_MAX_TIME（默认 60 分钟）。按实测最慢 20 KB/s 算，
+#     最大的 43 MB 要 ~2200s —— 之前卡 900s 是**必然超时**，不是网络突然变差；
+#   - 整体预算 UPLOAD_DEADLINE（默认 2 小时）：只用来兜「彻底不通」的情况，
+#     超了把剩下的记为「未上传」并打 warning；
 #   - 每个文件都打印**实际发出的字节数与均速**，慢还是卡一眼可见；
 #   - --speed-limit **默认关闭**：预签名 PUT 不能断点续传，中途掐掉等于把
 #     已发出的字节全扔了（真机日志里就这么白扔过 11.8 MB）。
 #
-# 💡 但更该做的是**别让这一跳发生在 CI 里**：在国内机器上跑
-# scripts/mirror-github-release-to-gitcode.sh（先从 GitHub 下载、再推 GitCode），
-# 同样是 250 MB，几分钟就完事。CI 直传只作为没有国内机器时的兜底。
+# 💡 想更快也有办法（可选，不是必须）：`scripts/mirror-github-release-to-gitcode.sh`
+# 能在国内机器上把产物推上去（纯境内上传，几 MB/s）。CI 直传这条路径本身是能跑通的，
+# 只是在境外运行器上受这条链路的速度限制。
 #
 # 注意：GitCode 没有「删除 Release / 删除附件」的接口，所以滚动预发布
 # （dev-latest）反复构建会让附件越积越多，需要偶尔去网页端删掉那个 Release
@@ -56,8 +55,8 @@
 #   PYTHON_BIN          可选，默认 python3
 #   GITCODE_INCLUDE     可选，只上传文件名含这些子串的文件（空格分隔），默认全部
 #   PARALLEL            可选，并发上传路数，1 = 串行，默认 4
-#   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 2700（45 分钟）
-#   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 5400（90 分钟）
+#   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 3600（60 分钟）
+#   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 7200（2 小时）
 #   UPLOAD_RETRY        可选，单个文件失败后重试次数，默认 1（第二次换协议栈试）
 #   API_MAX_TIME        可选，单次 API 调用的最长秒数，默认 120
 #   UPLOAD_SPEED_LIMIT  可选，低于这个速率（字节/秒）视为停滞，**默认 0＝关闭**。
@@ -92,8 +91,8 @@ TARGET_COMMITISH="${TARGET_COMMITISH:-}"
 FILES_DIR="${FILES_DIR:-release}"
 GITCODE_INCLUDE="${GITCODE_INCLUDE:-}"
 PARALLEL="${PARALLEL:-4}"
-UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-2700}"
-UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-5400}"
+UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-3600}"
+UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-7200}"
 UPLOAD_RETRY="${UPLOAD_RETRY:-1}"
 API_MAX_TIME="${API_MAX_TIME:-120}"
 UPLOAD_SPEED_LIMIT="${UPLOAD_SPEED_LIMIT:-0}"
