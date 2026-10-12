@@ -17,18 +17,27 @@
 #
 # ⚠️ 上传慢是这条链路的固有属性，不是脚本 bug
 #
-# GitHub 托管运行器在境外，GitCode 的对象存储在国内。实测（见 docs/fork-setup.md）：
-# 单连接上传吞吐只有十几 KB/s 量级，250 MB 的产物单连接要 4 小时以上。所以：
-#   - 默认**多路并发**（PARALLEL，默认 4），把单连接吞吐叠加起来；
-#   - 每个文件有单次尝试上限（UPLOAD_MAX_TIME），整体有总预算（UPLOAD_DEADLINE），
-#     超了就把剩下的文件记为「未上传」，**不会让作业卡到天荒地老**；
-#   - 每个文件都打印**实际发出的字节数与均速**，让"到底是慢还是卡"一眼可见。
+# ⚠️ 上传慢是这条链路的固有属性，不是脚本 bug
 #
-# ⚠️ 补充：curl 的 --speed-limit 只在**真的停滞**（连不上速度）时才会断开。
-# 实测过 —— 本地造一个"服务器不收也不回"的场景，`--speed-limit 4096 --speed-time 10`
-# 在 17 秒就报 "Operation too slow"；而同场景只给 --max-time 就只能干等。
-# 所以它在 CI 里连 60 秒都没触发，恰恰**证明数据一直在流**（>4 KB/s），是吞吐问题。
-# 这条别删，否则「慢」和「死」在日志里长得一模一样。
+# GitHub 托管运行器在境外，GitCode 的文件服务（file.gitcode.com）在国内，
+# 跨境那一跳就是全部瓶颈。实测数据（见 docs/fork-setup.md）：
+#
+#   方向                          速率
+#   GitHub Actions → GitCode 上传  单连接 16-43 KB/s，6 路并发合计 ~160 KB/s
+#   国内机器       → GitCode 下载  8.2 MB/s（126 MB / 15.3s）
+#
+# 差 50 倍。所以脚本把「单连接吞吐叠加 + 给整件事封顶」做到位：
+#   - 默认**多路并发**（PARALLEL，默认 6），并发是真的生效的（日志墙钟能对上）；
+#   - 每个文件有单次尝试上限（UPLOAD_MAX_TIME，默认 45 分钟），整体有总预算
+#     （UPLOAD_DEADLINE，默认 90 分钟），超了就把剩下的记为「未上传」，
+#     **不会让作业卡到天荒地老**；
+#   - 每个文件都打印**实际发出的字节数与均速**，慢还是卡一眼可见；
+#   - --speed-limit **默认关闭**：预签名 PUT 不能断点续传，中途掐掉等于把
+#     已发出的字节全扔了（真机日志里就这么白扔过 11.8 MB）。
+#
+# 💡 但更该做的是**别让这一跳发生在 CI 里**：在国内机器上跑
+# scripts/mirror-github-release-to-gitcode.sh（先从 GitHub 下载、再推 GitCode），
+# 同样是 250 MB，几分钟就完事。CI 直传只作为没有国内机器时的兜底。
 #
 # 注意：GitCode 没有「删除 Release / 删除附件」的接口，所以滚动预发布
 # （dev-latest）反复构建会让附件越积越多，需要偶尔去网页端删掉那个 Release
@@ -47,11 +56,13 @@
 #   PYTHON_BIN          可选，默认 python3
 #   GITCODE_INCLUDE     可选，只上传文件名含这些子串的文件（空格分隔），默认全部
 #   PARALLEL            可选，并发上传路数，1 = 串行，默认 4
-#   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 900
-#   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 2400
+#   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 2700（45 分钟）
+#   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 5400（90 分钟）
 #   UPLOAD_RETRY        可选，单个文件失败后重试次数，默认 1（第二次换协议栈试）
 #   API_MAX_TIME        可选，单次 API 调用的最长秒数，默认 120
-#   UPLOAD_SPEED_LIMIT  可选，低于这个速率（字节/秒）视为停滞，默认 4096
+#   UPLOAD_SPEED_LIMIT  可选，低于这个速率（字节/秒）视为停滞，**默认 0＝关闭**。
+#                        预签名 PUT 不能断点续传，中途掐掉等于把已发出的字节全扔了；
+#                        停顿交给 --max-time 兜底更划算。确实想打开就设成 4096。
 #   UPLOAD_SPEED_TIME   可选，低速持续多少秒判定为停滞，默认 60
 #
 # 未配置 GITCODE_TOKEN 时**静默跳过并返回 0** —— 令牌是可选的，没配就不该
@@ -81,11 +92,11 @@ TARGET_COMMITISH="${TARGET_COMMITISH:-}"
 FILES_DIR="${FILES_DIR:-release}"
 GITCODE_INCLUDE="${GITCODE_INCLUDE:-}"
 PARALLEL="${PARALLEL:-4}"
-UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-900}"
-UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-2400}"
+UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-2700}"
+UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-5400}"
 UPLOAD_RETRY="${UPLOAD_RETRY:-1}"
 API_MAX_TIME="${API_MAX_TIME:-120}"
-UPLOAD_SPEED_LIMIT="${UPLOAD_SPEED_LIMIT:-4096}"
+UPLOAD_SPEED_LIMIT="${UPLOAD_SPEED_LIMIT:-0}"
 UPLOAD_SPEED_TIME="${UPLOAD_SPEED_TIME:-60}"
 
 case "$RELEASE_STATUS" in
@@ -443,10 +454,19 @@ upload_one() { # idx path
     local put_out put_status put_rest put_time put_size put_speed
     # 预签名地址不能再加任何 query（会破坏签名），也不要带令牌。
     #
-    # --speed-limit/--speed-time：真**停滞**时一分钟内报错；注意它只在完全不动时
-    # 才触发，慢速持续传输是不会被它打断的（那要靠 --max-time / 总预算来兜）。
+    # ⚠️ `--speed-limit` **默认关闭**，这是被真机日志教出来的：
+    # 2026-10-12 那次，一个文件已经发出去 11.8 MB（均速 43 KB/s），只是中途
+    # 停顿了 60 秒低于 4 KB/s，就被这个开关掐掉 —— 而预签名 PUT **不能断点续传**，
+    # 一中断就得从 0 重来，等于白扔 11.8 MB。跨境链路上的停顿是常态，
+    # 所以宁可慢着等（`--max-time` 兜底），也不要中途掐。
+    # 想打开就设 UPLOAD_SPEED_LIMIT=4096（0 = 关闭）。
+    local stall_args=()
+    if [ "$UPLOAD_SPEED_LIMIT" != "0" ] && [ -n "$UPLOAD_SPEED_LIMIT" ]; then
+      stall_args=(--speed-limit "$UPLOAD_SPEED_LIMIT" --speed-time "$UPLOAD_SPEED_TIME")
+    fi
+    # ${arr[@]+"${arr[@]}"}：空数组在 set -u 下也能安全展开（老版本 bash 会报 unbound）
     put_out="$(curl -sS "${proto_args[@]}" --connect-timeout 30 --max-time "$limit" \
-      --speed-limit "$UPLOAD_SPEED_LIMIT" --speed-time "$UPLOAD_SPEED_TIME" -H "Expect:" \
+      ${stall_args[@]+"${stall_args[@]}"} -H "Expect:" \
       -o "$workdir/put_resp.$idx.bin" \
       -w '%{http_code} %{time_total} %{size_upload} %{speed_upload}' \
       -X PUT "${header_args[@]}" --upload-file "$path" "$upload_url" || true)"

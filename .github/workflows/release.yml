@@ -974,8 +974,8 @@ jobs:
           TARGET_COMMITISH: ${{ github.sha }}
           FILES_DIR: release
           PARALLEL: '6'
-          UPLOAD_MAX_TIME: '900'
-          UPLOAD_DEADLINE: '3000'
+          UPLOAD_MAX_TIME: '2700'
+          UPLOAD_DEADLINE: '5400'
         run: bash scripts/publish-gitcode-release.sh
 
       - name: 发布到稳定更新通道

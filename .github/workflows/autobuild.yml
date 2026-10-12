@@ -776,6 +776,6 @@ jobs:
           FILES_DIR: release
           GITCODE_INCLUDE: ${{ needs.version.outputs.gitcode-include }}
           PARALLEL: '6'
-          UPLOAD_MAX_TIME: '900'
-          UPLOAD_DEADLINE: '3000'
+          UPLOAD_MAX_TIME: '2700'
+          UPLOAD_DEADLINE: '5400'
         run: bash scripts/publish-gitcode-release.sh
