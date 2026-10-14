@@ -11,6 +11,11 @@ import { GetOverlayShortcut } from "../../../bindings/yukihub/internal/service/o
 import { onWailsEvent } from "../../bindings/runtime";
 import { FRIEND_LIST_UPDATED_EVENT } from "../../consts/events";
 import {
+  formatFriendLastSeen,
+  friendDisplayName,
+  sectionFriends,
+} from "../../utils/friendSort";
+import {
   presencePlatformLabelKey,
   showsPresencePlatform,
 } from "../../utils/presencePlatform";
@@ -19,14 +24,10 @@ import { PresencePlatformIcon } from "../ui/PresencePlatformIcon";
 import { OverlayChat } from "./OverlayChat";
 
 interface Sections {
+  unread: Friend[];
   playing: Friend[];
   online: Friend[];
   offline: Friend[];
-}
-
-/** 好友展示名：备注优先（与主界面、通知一致）。 */
-function friendDisplayName(friend: Friend): string {
-  return friend.note?.trim() || friend.nickname;
 }
 
 /**
@@ -128,29 +129,17 @@ export default function FriendsOverlay() {
     void Window.Focus();
   };
 
-  // 分组规则与主界面一致（正在游戏 → 在线 → 离线）
+  // 分组与排序规则与主界面完全一致，共用 utils/friendSort.ts 那一份：
+  // 两处各写一份的话，同一份数据会在浮层与主界面排出不同的顺序。
   const sections = useMemo<Sections>(() => {
-    const result: Sections = { playing: [], online: [], offline: [] };
-    for (const friend of friendList?.friends ?? []) {
-      if (friend.status === "online" && friend.activity?.trim()) {
-        result.playing.push(friend);
-      }
-      else if (
-        friend.status === "online"
-        || friend.status === "away"
-        || friend.status === "busy"
-      ) {
-        result.online.push(friend);
-      }
-      else {
-        result.offline.push(friend);
-      }
-    }
-    return result;
+    return sectionFriends(friendList?.friends ?? []);
   }, [friendList]);
 
   const hasAnyFriend
-    = sections.playing.length + sections.online.length + sections.offline.length
+    = sections.playing.length
+      + sections.online.length
+      + sections.offline.length
+      + sections.unread.length
       > 0;
 
   return (
@@ -177,6 +166,7 @@ export default function FriendsOverlay() {
               name={friendDisplayName(activeFriend)}
               avatar={activeFriend.avatar}
               size={22}
+              frame={activeFriend.frame}
             />
             <span className="truncate text-[13px] font-bold">
               {friendDisplayName(activeFriend)}
@@ -223,6 +213,14 @@ export default function FriendsOverlay() {
               </p>
             )}
 
+            {/* 有未读消息的提到最前（对齐主界面与手机版）：好友可能已经离线好几天，
+                但消息没看，只按在线状态排会被埋进「离线」区而完全看不到。 */}
+            <OverlaySection
+              title={t("friendsChat.section.unread")}
+              friends={sections.unread}
+              highlight
+              onSelect={openChat}
+            />
             <OverlaySection
               title={t("friendsChat.section.playing")}
               friends={sections.playing}
@@ -268,6 +266,25 @@ function OverlaySection({
 }) {
   const { t } = useTranslation();
 
+  /**
+   * 第二行文案，与主界面 FriendsChatModal.renderFriendSubtitle 同口径
+   * （在线且在玩 → 正在玩；离线/离开 → 最后在线 X）。
+   * 浮层不显示签名与最后一条消息 —— 这里宽度只有几百像素，放不下。
+   */
+  const subtitle = (friend: Friend) => {
+    const activity = friend.activity?.trim();
+    if (friend.status === "online" && activity) {
+      return activity;
+    }
+    if (friend.status === "offline" || friend.status === "away") {
+      const lastSeen = formatFriendLastSeen(friend.lastHeartbeat, t);
+      if (lastSeen) {
+        return t("friendsChat.lastSeen", { time: lastSeen });
+      }
+    }
+    return "";
+  };
+
   if (friends.length === 0) {
     return null;
   }
@@ -293,6 +310,7 @@ function OverlaySection({
               name={friendDisplayName(friend)}
               avatar={friend.avatar}
               size={32}
+              frame={friend.frame}
             />
             <span
               className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full border-2 border-brand-900 ${
@@ -307,6 +325,10 @@ function OverlaySection({
           <div className="min-w-0 flex-1">
             <div
               className={`truncate text-[12px] font-medium ${dim ? "text-white/55" : "text-white/92"}`}
+              // 昵称颜色：装备了「萌萌点」颜色就用它（与主界面、手机版一致）
+              style={
+                friend.nameColor ? { color: friend.nameColor } : undefined
+              }
             >
               {friendDisplayName(friend)}
             </div>
@@ -324,7 +346,7 @@ function OverlaySection({
                   title={t(presencePlatformLabelKey(friend.platform))}
                 />
               )}
-              <span className="truncate">{friend.activity?.trim() || ""}</span>
+              <span className="truncate">{subtitle(friend)}</span>
             </div>
           </div>
         </button>

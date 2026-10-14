@@ -126,6 +126,15 @@ type LevelInfo struct {
 	TodayCheckedIn    bool
 }
 
+// PlayReportResult 是 /game/play_report 的回执。
+//
+// ExpAwarded 为 0 是正常情况（该次时长不足、或当日额度已满），不是错误 ——
+// 服务端就是这样静默丢弃的，客户端不要去猜原因，更不要重试。
+type PlayReportResult struct {
+	ExpAwarded int
+	Level      int
+}
+
 // Client 是账号服务的 HTTP 客户端。
 type Client struct {
 	baseURL string
@@ -356,6 +365,40 @@ func (c *Client) GetLevel(ctx context.Context, token string) (LevelInfo, error) 
 		NextLevelTotalExp: pickInt64(body, "nextLevelTotalExp"),
 		IsMaxLevel:        pickBool(body, "isMaxLevel"),
 		TodayCheckedIn:    pickBool(body, "todayCheckedIn"),
+	}, nil
+}
+
+// ReportPlayTime 上报一次已结算的游玩会话，用于发放游戏经验并计入网页端每日任务。
+//
+// 契约对齐手机版 SocialApiClient.reportPlayTime：
+//
+//	POST /game/play_report
+//	{sessionUuid, gameKey, title, startTime(ms), endTime(ms)}
+//	→ {expAwarded, level, ...}
+//
+// 几个必须照做的点：
+//   - **sessionUuid 是防重复上报的唯一键**，必须稳定且唯一：桌面端直接用
+//     play_sessions.id（CreatePendingSession 生成的 UUID），重试/补报不会重复计经验。
+//   - startTime / endTime 传**毫秒**时间戳。服务端 2026-08 起会自动识别毫秒并换算秒，
+//     但两边都按毫秒发才不会在识别逻辑回退时把时长算成 1/1000。
+//   - 服务端规则（不在客户端做）：单次 <60 秒不计、每日上限 60 分钟、UTC 日切。
+//     所以客户端**不要**自己裁剪时长，否则与手机端口径不一致。
+//   - gameKey 目前两端都发空串（服务端按 sessionUuid 记账）。
+func (c *Client) ReportPlayTime(ctx context.Context, token, sessionUUID, gameKey, title string, startTime, endTime time.Time) (PlayReportResult, error) {
+	payload := map[string]any{
+		"sessionUuid": strings.TrimSpace(sessionUUID),
+		"gameKey":     strings.TrimSpace(gameKey),
+		"title":       strings.TrimSpace(title),
+		"startTime":   startTime.UnixMilli(),
+		"endTime":     endTime.UnixMilli(),
+	}
+	body, err := c.doJSON(ctx, http.MethodPost, c.baseURL+"/game/play_report", token, payload)
+	if err != nil {
+		return PlayReportResult{}, err
+	}
+	return PlayReportResult{
+		ExpAwarded: int(pickInt64(body, "expAwarded", "exp_awarded")),
+		Level:      int(pickInt64(body, "level")),
 	}, nil
 }
 

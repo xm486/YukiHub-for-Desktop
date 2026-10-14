@@ -36,7 +36,7 @@ export class AppConfig {
     "vndb_access_token"?: string;
 
     /**
-     * 元数据拉取来源列表（vndb/bangumi/bangumi_mirror/ymgal/hikarinagi/nextmoe）
+     * 元数据抓取来源列表（vndb/bangumi/ymgal/hikarinagi/nextmoe）
      */
     "metadata_sources"?: string[];
 

@@ -18,13 +18,21 @@ type MetadataSource = enums.SourceType
 const metadataDefaultMaxRateLimitRetries = 1
 
 type MetadataRateLimitPolicy struct {
-	Source              MetadataSource
-	Interval            time.Duration
-	UpstreamLimit       int
-	UpstreamWindow      time.Duration
-	RateLimitRetryDelay time.Duration
-	MaxRetryDelay       time.Duration
-	MaxRateLimitRetries int
+	Source         MetadataSource
+	Interval       time.Duration
+	UpstreamLimit  int
+	UpstreamWindow time.Duration
+	// AnonymousInterval / AnonymousUpstreamLimit 只在「本次请求未携带凭据」的档位生效。
+	// 0 表示该来源没有匿名档差别，沿用 Interval / UpstreamLimit。
+	//
+	// 为什么必须分档：NextMoe 的配额按身份计（匿名按出口 IP 50/min，
+	// 登录后按用户 100/min）。如果两档共用同一个窗口计数器，登录用户会被
+	// 匿名档的 50/min 卡住 —— 那就是「登录了额度还是一样」，属于必须避免的 bug。
+	AnonymousInterval      time.Duration
+	AnonymousUpstreamLimit int
+	RateLimitRetryDelay    time.Duration
+	MaxRetryDelay          time.Duration
+	MaxRateLimitRetries    int
 }
 
 func DefaultMetadataRateLimitPolicies() map[MetadataSource]MetadataRateLimitPolicy {
@@ -85,25 +93,41 @@ func DefaultMetadataRateLimitPolicies() map[MetadataSource]MetadataRateLimitPoli
 			UpstreamLimit:  3000,
 			UpstreamWindow: 10 * time.Minute,
 		},
-		// NextMoe 用户档 100/min，客户端限速 1100ms 并留出重试余量。
+		// NextMoe（未萌）配额按身份计：
+		//   - 登录档（带用户令牌）：100/min、10,000/UTC 日，按用户计 → 间隔 700ms
+		//   - 匿名档（不带 Authorization）：50/min，按出口 IP 计 → 间隔 1300ms
+		// 数值逐项对齐手机版 NextMoeClient.MIN_INTERVAL_AUTHED_MS / MIN_INTERVAL_ANON_MS。
+		// 客户端限速是「不给对方服务器添压力」的第一道闸，重试退避是第二道。
 		enums.NextMoe: {
-			Source:              enums.NextMoe,
-			Interval:            1100 * time.Millisecond,
-			UpstreamLimit:       100,
-			UpstreamWindow:      time.Minute,
-			RateLimitRetryDelay: 1200 * time.Millisecond,
-			MaxRetryDelay:       5 * time.Second,
-			MaxRateLimitRetries: 2,
+			Source:                 enums.NextMoe,
+			Interval:               700 * time.Millisecond,
+			UpstreamLimit:          100,
+			UpstreamWindow:         time.Minute,
+			AnonymousInterval:      1300 * time.Millisecond,
+			AnonymousUpstreamLimit: 50,
+			RateLimitRetryDelay:    1200 * time.Millisecond,
+			MaxRetryDelay:          5 * time.Second,
+			MaxRateLimitRetries:    2,
 		},
 	}
 
 	return policies
 }
 
+// metadataLimiterKey 区分「同一来源的匿名档与登录档」。
+//
+// 匿名与登录是两套独立的额度（分别按出口 IP 与按用户计），必须各自维护窗口，
+// 否则登录用户的额度会被匿名档的历史请求占掉（手机版也是按档位取间隔，
+// 只是在移动端只有一条串行刮削链路，差异看不出来）。
+type metadataLimiterKey struct {
+	source    MetadataSource
+	anonymous bool
+}
+
 type metadataRateLimiter struct {
 	mu       sync.Mutex
 	policies map[MetadataSource]MetadataRateLimitPolicy
-	sources  map[MetadataSource]*metadataSourceLimiter
+	sources  map[metadataLimiterKey]*metadataSourceLimiter
 	now      func() time.Time
 	wait     func(context.Context, time.Duration) error
 }
@@ -124,13 +148,23 @@ func newMetadataRateLimiter(policies map[MetadataSource]MetadataRateLimitPolicy)
 
 	return &metadataRateLimiter{
 		policies: copied,
-		sources:  make(map[MetadataSource]*metadataSourceLimiter, len(copied)),
+		sources:  make(map[metadataLimiterKey]*metadataSourceLimiter, len(copied)),
 		now:      time.Now,
 		wait:     contextAwareSleep,
 	}
 }
 
 func (l *metadataRateLimiter) Acquire(ctx context.Context, source MetadataSource) error {
+	return l.acquire(ctx, source, false)
+}
+
+// AcquireForTier 按档位取用配额：anonymous=true 表示本次请求不带凭据，
+// 走 AnonymousInterval / AnonymousUpstreamLimit（未配置时自动沿用登录档）。
+func (l *metadataRateLimiter) AcquireForTier(ctx context.Context, source MetadataSource, anonymous bool) error {
+	return l.acquire(ctx, source, anonymous)
+}
+
+func (l *metadataRateLimiter) acquire(ctx context.Context, source MetadataSource, anonymous bool) error {
 	if l == nil {
 		return nil
 	}
@@ -138,7 +172,7 @@ func (l *metadataRateLimiter) Acquire(ctx context.Context, source MetadataSource
 		ctx = context.Background()
 	}
 
-	policy, sourceLimiter, ok := l.sourceState(source)
+	policy, sourceLimiter, ok := l.sourceState(source, anonymous)
 	if !ok || !policy.hasLimit() {
 		return nil
 	}
@@ -159,6 +193,17 @@ func (l *metadataRateLimiter) Acquire(ctx context.Context, source MetadataSource
 	}
 }
 
+// resolve 把档位换算成实际生效的间隔与窗口额度。
+func (p MetadataRateLimitPolicy) forAnonymousTier() MetadataRateLimitPolicy {
+	if p.AnonymousInterval > 0 {
+		p.Interval = p.AnonymousInterval
+	}
+	if p.AnonymousUpstreamLimit > 0 {
+		p.UpstreamLimit = p.AnonymousUpstreamLimit
+	}
+	return p
+}
+
 func (p MetadataRateLimitPolicy) hasLimit() bool {
 	return p.Interval > 0 || (p.UpstreamLimit > 0 && p.UpstreamWindow > 0)
 }
@@ -173,7 +218,7 @@ func (l *metadataRateLimiter) Policy(source MetadataSource) (MetadataRateLimitPo
 	return policy, ok
 }
 
-func (l *metadataRateLimiter) sourceState(source MetadataSource) (MetadataRateLimitPolicy, *metadataSourceLimiter, bool) {
+func (l *metadataRateLimiter) sourceState(source MetadataSource, anonymous bool) (MetadataRateLimitPolicy, *metadataSourceLimiter, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -181,10 +226,14 @@ func (l *metadataRateLimiter) sourceState(source MetadataSource) (MetadataRateLi
 	if !ok {
 		return MetadataRateLimitPolicy{}, nil, false
 	}
-	sourceLimiter := l.sources[source]
+	if anonymous {
+		policy = policy.forAnonymousTier()
+	}
+	key := metadataLimiterKey{source: source, anonymous: anonymous}
+	sourceLimiter := l.sources[key]
 	if sourceLimiter == nil {
 		sourceLimiter = &metadataSourceLimiter{}
-		l.sources[source] = sourceLimiter
+		l.sources[key] = sourceLimiter
 	}
 	return policy, sourceLimiter, true
 }

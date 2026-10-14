@@ -29,6 +29,7 @@ import {
   SelectSaveDirectory,
   SelectSaveFile,
   SetDefaultMetadataSource,
+  SetGameHidden,
   UpdateGame,
   UpdateGameFromRemoteBySource,
   UpdateGameFromRemoteWithFields,
@@ -508,6 +509,52 @@ function GameDetailPage() {
       updateGameState(game);
       toast.error(
         error instanceof Error ? error.message : t("game.toast.saveFailed"),
+      );
+    }
+  };
+
+  /**
+   * 切换「在库中隐藏」（对齐手机版游戏「选项」菜单里的「隐藏游戏 / 取消隐藏」）。
+   *
+   * 入口与 NSFW 标记同排放在详情页顶部操作区 —— 原来挂在游戏库右侧详情面板的
+   * 「查看完整详情」旁边，按钮挤在一起不好看，也不好找。
+   *
+   * 落库走 SetGameHidden（只改 hidden + updated_at），不用 UpdateGame 整行覆盖：
+   * 整行写会把别处并发改过的字段一起写成旧值；而且详情页本来就有防抖自动保存，
+   * 整行写等于白写两次。落库后把 originalGameData 同步成新值，
+   * 让自动保存认为「没有未保存改动」。
+   */
+  const handleToggleHidden = async () => {
+    if (!game) {
+      return;
+    }
+    const nextValue = !game.hidden;
+    const updatedGame = { ...game, hidden: nextValue } as models.Game;
+    updateGameState(updatedGame);
+    try {
+      await SetGameHidden(game.id, nextValue);
+      originalGameData.current = updatedGame;
+      // 隐藏后要立刻从默认列表消失 / 取消隐藏后重新出现
+      invalidateAllGameLists();
+      toast.success(
+        t(
+          nextValue
+            ? "library.toast.gameHidden"
+            : "library.toast.gameUnhidden",
+          { name: game.name },
+        ),
+      );
+    }
+    catch (error) {
+      // 失败回滚本地状态，避免界面与库里不一致
+      updateGameState(game);
+      console.error("Failed to update hidden:", error);
+      toast.error(
+        t(
+          nextValue
+            ? "library.toast.gameHiddenFailed"
+            : "library.toast.gameUnhiddenFailed",
+        ),
       );
     }
   };
@@ -1604,7 +1651,43 @@ function GameDetailPage() {
                       </button>
                     </BetterTooltip>
 
-                    {/* NSFW 标记（原来在编辑页的开关卡片里，移到顶部操作区） */}
+                    {/* 在库中隐藏（与 NSFW 标记同排：都属于「这条记录怎么在库里呈现」） */}
+                    <BetterTooltip
+                      content={
+                        game.hidden
+                          ? t("game.unhideGame")
+                          : t("game.hideGame")
+                      }
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleHidden()}
+                        aria-pressed={Boolean(game.hidden)}
+                        aria-label={t("game.hideGame")}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/70 ${
+                          game.hidden
+                            ? "bg-brand-700 text-white hover:bg-brand-800"
+                            : "bg-brand-150 text-brand-500 hover:bg-brand-200 hover:text-brand-900 dark:bg-brand-700 dark:text-brand-400 dark:hover:bg-brand-600 dark:hover:text-brand-100"
+                        }`}
+                      >
+                        <span
+                          className={`text-base ${
+                            game.hidden
+                              ? "i-mdi-eye-outline"
+                              : "i-mdi-eye-off-outline"
+                          }`}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </BetterTooltip>
+
+                    {/* NSFW 标记（原来在编辑页的开关卡片里，移到顶部操作区）。
+                        图标**故意不用眼睛**：旁边就是「在库中隐藏」，两枚眼睛图标
+                        并排时长一样、颜色一样，不 hover 根本分不出哪个是哪个。
+                        MDI 这套里没有 18+/成人图元，火苗是这里最不会与其它语义
+                        撞车的选择（全仓库只有这一处用 fire 系）；本仓库大量用
+                        alert-* 表示「警告 / 失败」，拿来做 NSFW 会引入新的歧义。
+                        与「隐藏」按钮同构：图标同时反映状态 —— 打上标记是 fire-alert。 */}
                     <BetterTooltip
                       content={
                         game.is_nsfw
@@ -1624,7 +1707,11 @@ function GameDetailPage() {
                         }`}
                       >
                         <span
-                          className="i-mdi-eye-off-outline text-base"
+                          className={`text-base ${
+                            game.is_nsfw
+                              ? "i-mdi-fire-alert"
+                              : "i-mdi-fire"
+                          }`}
                           aria-hidden="true"
                         />
                       </button>

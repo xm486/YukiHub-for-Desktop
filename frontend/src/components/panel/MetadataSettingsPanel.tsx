@@ -143,6 +143,9 @@ export function MetadataSettingsPanel({
     return unsubscribe;
   }, []);
 
+  // 次序与手机版设置页的资料源下拉逐项对齐（MainActivity 设置面板）：
+  // 0=NextMoe(默认) 1=VNDB 2=Bangumi 3=月幕Gal 4=Hikarinagi。
+  // **不含 Bangumi 镜像源**：它已随手机版一起下线，历史值由 Go 侧归一到 bangumi。
   const sourceItems: Array<{
     value: enumTypes.SourceType;
     label: string;
@@ -150,30 +153,22 @@ export function MetadataSettingsPanel({
     icon: string;
   }> = [
     {
-      value: enums.SourceType.VNDB,
-      label: "VNDB",
-      hint: t("settings.metadata.sourceHints.vndb"),
-      icon: getMetadataSourceIcon(enums.SourceType.VNDB) ?? "",
-    },
-    // 次序对齐手机版设置页：NextMoe 紧随默认源 VNDB 之后
-    // （MainActivity 的资料源下拉：VNDB（默认）/ NextMoe（推荐）/ Bangumi / …）。
-    {
       value: enums.SourceType.NextMoe,
       label: t("gameEdit.sourceNextMoe"),
       hint: t("settings.metadata.sourceHints.nextmoe"),
       icon: getMetadataSourceIcon(enums.SourceType.NextMoe) ?? "",
     },
     {
+      value: enums.SourceType.VNDB,
+      label: "VNDB",
+      hint: t("settings.metadata.sourceHints.vndb"),
+      icon: getMetadataSourceIcon(enums.SourceType.VNDB) ?? "",
+    },
+    {
       value: enums.SourceType.Bangumi,
       label: "Bangumi",
       hint: t("settings.metadata.sourceHints.bangumi"),
       icon: getMetadataSourceIcon(enums.SourceType.Bangumi) ?? "",
-    },
-    {
-      value: enums.SourceType.BangumiMirror,
-      label: t("gameEdit.sourceBangumiMirror"),
-      hint: t("settings.metadata.sourceHints.bangumiMirror"),
-      icon: getMetadataSourceIcon(enums.SourceType.BangumiMirror) ?? "",
     },
     {
       value: enums.SourceType.Ymgal,

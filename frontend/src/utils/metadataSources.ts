@@ -10,20 +10,25 @@ import vndbLogoUrl from "../assets/providers/vndb-logo.svg";
 import ymgalLogoUrl from "../assets/providers/ymgal-logo.png";
 
 // 与手机版保持一致的可选来源集合。
+//
+// **不含 bangumi_mirror**：镜像站长期不稳定（bangumi.lol → bangumi.pro 都挂过），
+// 手机版已下线该源并用 NextMoe 替代。历史配置里的 `bangumi_mirror` 由 Go 侧
+// NormalizeLegacyMetadataSource 静默归一到 bangumi，前端不再把它作为可选项暴露。
 export const ALL_METADATA_SOURCES: readonly enums.SourceType[] = [
   modelEnums.SourceType.VNDB,
   modelEnums.SourceType.Bangumi,
-  modelEnums.SourceType.BangumiMirror,
   modelEnums.SourceType.Ymgal,
   modelEnums.SourceType.Hikarinagi,
   modelEnums.SourceType.NextMoe,
 ];
 
+// 默认启用的来源，与 Go 侧 appconf.defaultMetadataSources 一一对应。
 export const DEFAULT_ENABLED_METADATA_SOURCES: readonly enums.SourceType[] = [
   modelEnums.SourceType.VNDB,
   modelEnums.SourceType.Bangumi,
   modelEnums.SourceType.Ymgal,
   modelEnums.SourceType.Hikarinagi,
+  modelEnums.SourceType.NextMoe,
 ];
 
 const VALID_METADATA_SOURCE_SET = new Set<string>(ALL_METADATA_SOURCES);
@@ -32,7 +37,6 @@ const METADATA_SOURCE_ICONS: Readonly<
   Partial<Record<enums.SourceType, string>>
 > = {
   [modelEnums.SourceType.Bangumi]: bangumiLogoUrl,
-  [modelEnums.SourceType.BangumiMirror]: bangumiLogoUrl,
   [modelEnums.SourceType.VNDB]: vndbLogoUrl,
   [modelEnums.SourceType.Ymgal]: ymgalLogoUrl,
   [modelEnums.SourceType.Hikarinagi]: hikarinagiLogoUrl,
@@ -94,6 +98,16 @@ export function getMetadataSourceURL(
   }
 }
 
+/**
+ * 已下线来源的别名表：老配置 / 老同步快照里可能还存着这些值。
+ *
+ * 与 Go 侧 appconf.NormalizeLegacyMetadataSource 保持同一张表。
+ * 直接判无效会把用户的设置「吃掉」，静默归一更稳妥。
+ */
+const LEGACY_METADATA_SOURCE_ALIASES: Readonly<Record<string, string>> = {
+  bangumi_mirror: "bangumi",
+};
+
 export function normalizeEnabledMetadataSources(
   sources: readonly string[] | undefined,
 ): enums.SourceType[] {
@@ -104,7 +118,8 @@ export function normalizeEnabledMetadataSources(
   const normalized: enums.SourceType[] = [];
   const seen = new Set<string>();
   for (const source of sources) {
-    const value = source.toLowerCase().trim();
+    const raw = source.toLowerCase().trim();
+    const value = LEGACY_METADATA_SOURCE_ALIASES[raw] ?? raw;
     if (!VALID_METADATA_SOURCE_SET.has(value) || seen.has(value)) {
       continue;
     }

@@ -669,6 +669,9 @@ func runGUI(
 		startService.SetGameService(gameService)
 		startService.SetIntegrationService(integrationService)
 		startService.SetSessionService(sessionService)
+		// 游玩会话结算后上报账号服务端（游戏经验 + 网页端每日任务时长）。
+		// 游戏库启动与大屏启动是同一条链路，挂在结算处即可两处都算。
+		startService.SetPlaySessionReporter(accountService)
 		downloadService.SetGameService(gameService)
 		configService.SetDownloadService(downloadService)
 		gameService.SetImageDownloadTaskStarter(downloadService.StartCoverImageDownloadTask)

@@ -202,7 +202,15 @@ func QueryGameList(ctx context.Context, db *sql.DB, req vo.GameListRequest, scop
 		whereParts = append(whereParts, fmt.Sprintf("COALESCE(g.status, 'unplayed') %s ?", statusOperator))
 		args = append(args, string(*req.Status))
 	}
-	if req.ExcludeHidden {
+	// 隐藏过滤：三态里只能落一种。
+	//   - HiddenOnly：只看已隐藏（手机版筛选栏的「隐藏」分类）
+	//   - ExcludeHidden：隐藏的不显示（默认，对齐手机版 getAll() 的 hidden=0）
+	//   - 都不传：隐藏的一起显示
+	// 两个布尔同时为 true 时以 HiddenOnly 为准：接口层面不能让它们打架返回空列表。
+	switch {
+	case req.HiddenOnly:
+		whereParts = append(whereParts, "COALESCE(g.hidden, FALSE) = TRUE")
+	case req.ExcludeHidden:
 		whereParts = append(whereParts, "COALESCE(g.hidden, FALSE) = FALSE")
 	}
 	if req.MetadataSource != nil {

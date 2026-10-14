@@ -120,13 +120,31 @@ func NormalizeBatchImportPreferences(config *AppConfig) bool {
 	}
 
 	if config.BatchImportPreferredSource != "" {
-		if _, ok := allowedMetadataSourceSet[config.BatchImportPreferredSource]; !ok {
+		normalizedPreferred := NormalizeLegacyMetadataSource(config.BatchImportPreferredSource)
+		if _, ok := allowedMetadataSourceSet[normalizedPreferred]; !ok {
 			config.BatchImportPreferredSource = ""
+			changed = true
+		} else if config.BatchImportPreferredSource != normalizedPreferred {
+			config.BatchImportPreferredSource = normalizedPreferred
 			changed = true
 		}
 	}
 
 	return changed
+}
+
+// NormalizeLegacyMetadataSource 把已下线的资料源标识降级为现行有效值。
+//
+// 目前只有一条规则：`bangumi_mirror` → `bangumi`。镜像站（bangumi.lol → bangumi.pro）
+// 长期不稳定且已有 NextMoe 源替代，手机版已把它下线；旧配置/旧同步快照里可能还存着
+// 这个值，直接丢掉会让人「设置好的源凭空消失」，所以静默归一到官源。
+// 与手机版 MetadataController.metadataSource / normalizeMetadataSource 的迁移逻辑一致。
+func NormalizeLegacyMetadataSource(source string) string {
+	normalized := strings.ToLower(strings.TrimSpace(source))
+	if normalized == string(enums2.BangumiMirror) {
+		return string(enums2.Bangumi)
+	}
+	return normalized
 }
 
 func normalizeMetadataSources(sources []string) []string {
@@ -138,7 +156,7 @@ func normalizeMetadataSources(sources []string) []string {
 	seen := make(map[string]struct{}, len(defaultMetadataSources))
 
 	for _, source := range sources {
-		normalized := strings.ToLower(strings.TrimSpace(source))
+		normalized := NormalizeLegacyMetadataSource(source)
 		if normalized == "" {
 			continue
 		}
@@ -332,16 +350,24 @@ func NormalizeMetadataCoverSources(config *AppConfig) {
 	config.VNDBCoverSource = NormalizeMetadataCoverSource(config.VNDBCoverSource)
 }
 
-// NormalizeCurrentMetadataSource 校验「当前资料源」，非法取值回落到默认 VNDB。
+// NormalizeCurrentMetadataSource 校验「当前资料源」，非法取值回落到默认源。
 //
 // 只认「可作为资料源开启」的那几个（allowedMetadataSourceSet，与设置页下拉一致）。
 // IsSelectableMetadataSource 判断某个资料源是否属于「当前资料源」的白名单。
 //
 // 这张表既是设置页给用户的可选项，也正好等于手机版 importSnapshot 落回
-// settings.metadata_source 时接受的那六个值（vndb / bangumi / bangumi_mirror /
-// ymgal / hikarinagi / nextmoe）。导入同步快照时用它校验，避免把桌面端独有的
-// 来源（steam / dlsite / touchgal / erogamescape）当成跨端全局偏好写进配置 ——
-// 那些值手机端根本不认识，写过去会被它忽略。
+// settings.metadata_source 时接受的那五个值（vndb / bangumi / ymgal / hikarinagi /
+// nextmoe）。导入同步快照时用它校验，避免把桌面端独有的来源（steam / dlsite /
+// touchgal / erogamescape）当成跨端全局偏好写进配置 —— 那些值手机端根本不认识，
+// 写过去会被它忽略。
+//
+// 与手机版 `isValidMetadataSource` 同样**严格判原值**：`bangumi_mirror` 在这里返回
+// false。历史值要先用 NormalizeLegacyMetadataSource 折叠成 bangumi 再判定，
+// 折叠动作放在读取/落库路径（见 import_service.resolveImportedMetadataSource），
+// 别塞进这个纯判定函数里 —— 否则「可选项清单」和「已下线来源」就混成一件东西了。
+//
+// 注意 VNDB 必须显式留在白名单里：它不再兼任「兜底值」，
+// 漏掉就会被归一成默认源（NextMoe）。手机版 normalizeMetadataSource 里同样有这条注释。
 func IsSelectableMetadataSource(source string) bool {
 	_, ok := allowedMetadataSourceSet[strings.ToLower(strings.TrimSpace(source))]
 	return ok
@@ -351,7 +377,7 @@ func NormalizeCurrentMetadataSource(config *AppConfig) bool {
 	if config == nil {
 		return false
 	}
-	normalized := enums2.SourceType(strings.ToLower(strings.TrimSpace(string(config.CurrentMetadataSource))))
+	normalized := enums2.SourceType(NormalizeLegacyMetadataSource(string(config.CurrentMetadataSource)))
 	if _, ok := allowedMetadataSourceSet[string(normalized)]; !ok {
 		normalized = DefaultCurrentMetadataSource
 	}

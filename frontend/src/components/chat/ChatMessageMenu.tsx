@@ -52,6 +52,8 @@ export function ChatMessageMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
   // 举报是二级菜单：先选理由再提交（手机版 showReportReasonDialog 同流程）
   const [reportMode, setReportMode] = useState(false);
+  // 自定义举报理由（手机版同款输入框，上限 50 字符）
+  const [customReason, setCustomReason] = useState("");
 
   useEffect(() => {
     if (!isOpen) {
@@ -123,7 +125,12 @@ export function ChatMessageMenu({
       key: "report",
       label: t("friendsChat.menuReport"),
       danger: true,
-      onClick: () => setReportMode(true),
+      onClick: () => {
+        // 每次进举报二级菜单都从空输入框开始：菜单是跨消息复用的，
+        // 不清空会把上一条消息填过的自定义理由带过来。
+        setCustomReason("");
+        setReportMode(true);
+      },
     });
   }
   // 手机版：撤回/删除只给聊天室管理员，且消息必须已落库
@@ -153,11 +160,16 @@ export function ChatMessageMenu({
           <div className="px-3 py-1.5 text-[11px] font-semibold text-brand-500 dark:text-brand-400">
             {t("friendsChat.reportTitle")}
           </div>
+          <p className="px-3 pb-1 text-[10px] leading-snug text-brand-400 dark:text-brand-500">
+            {t("friendsChat.reportHint")}
+          </p>
+          {/* 五项预设理由，顺序与手机版 showReportReasonDialog 的 reasons[] 逐字一致 */}
           {[
             t("friendsChat.reportReasonSpam"),
-            t("friendsChat.reportReasonAbuse"),
             t("friendsChat.reportReasonPorn"),
-            t("friendsChat.reportReasonOther"),
+            t("friendsChat.reportReasonAbuse"),
+            t("friendsChat.reportReasonIllegal"),
+            t("friendsChat.reportReasonFraud"),
           ].map(reason => (
             <button
               key={reason}
@@ -172,6 +184,40 @@ export function ChatMessageMenu({
               {reason}
             </button>
           ))}
+          {/*
+            自定义理由：手机版在预设之外还给一个输入框。
+            50 是**服务端 reason 字段的上限**，不是随手取的 UI 限制 ——
+            前端不拦的话超长部分会被服务端静默截断，用户看到的和提交的不一致。
+          */}
+          <div className="mt-1 border-t border-brand-200/70 px-2 pt-1.5 dark:border-brand-700/70">
+            <p className="px-1 text-[10px] text-brand-400 dark:text-brand-500">
+              {t("friendsChat.reportCustomLabel")}
+            </p>
+            <input
+              type="text"
+              value={customReason}
+              maxLength={50}
+              onChange={event => setCustomReason(event.target.value)}
+              placeholder={t("friendsChat.reportCustomPlaceholder")}
+              className="mt-1 w-full rounded-lg border border-brand-200 bg-white px-2 py-1.5 text-xs text-brand-800 outline-none placeholder:text-brand-400 focus:border-primary-400 dark:border-brand-700 dark:bg-brand-900 dark:text-brand-100 dark:placeholder:text-brand-500"
+            />
+            <button
+              type="button"
+              role="menuitem"
+              disabled={customReason.trim().length === 0}
+              onClick={() => {
+                const reason = customReason.trim();
+                if (!reason) {
+                  return;
+                }
+                onClose();
+                onReport(reason);
+              }}
+              className="mt-1 block w-full rounded-lg bg-primary-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-primary-500"
+            >
+              {t("friendsChat.reportCustomSubmit")}
+            </button>
+          </div>
           <button
             type="button"
             role="menuitem"

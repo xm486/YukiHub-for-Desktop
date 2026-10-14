@@ -50,20 +50,25 @@ type MetadataRequest struct {
 }
 
 type GameListRequest struct {
-	Limit                 int                  `json:"limit"`
-	Offset                int                  `json:"offset"`
-	SearchQuery           string               `json:"search_query"`
-	Status                *enums.GameStatus    `json:"status,omitempty"`
-	ExcludeStatus         bool                 `json:"exclude_status,omitempty"`
-	MetadataSource        *enums.SourceType    `json:"metadata_source,omitempty"`
-	ExcludeMetadataSource bool                 `json:"exclude_metadata_source,omitempty"`
-	ExcludeHidden         bool                 `json:"exclude_hidden,omitempty"`
-	Tags                  []string             `json:"tags"`
-	ExcludeTags           bool                 `json:"exclude_tags,omitempty"`
-	SortBy                enums.GameListSortBy `json:"sort_by"`
-	SortOrder             enums.SortOrder      `json:"sort_order"`
-	SecondarySortBy       enums.GameListSortBy `json:"secondary_sort_by"`
-	SecondarySortOrder    enums.SortOrder      `json:"secondary_sort_order"`
+	Limit                 int               `json:"limit"`
+	Offset                int               `json:"offset"`
+	SearchQuery           string            `json:"search_query"`
+	Status                *enums.GameStatus `json:"status,omitempty"`
+	ExcludeStatus         bool              `json:"exclude_status,omitempty"`
+	MetadataSource        *enums.SourceType `json:"metadata_source,omitempty"`
+	ExcludeMetadataSource bool              `json:"exclude_metadata_source,omitempty"`
+	ExcludeHidden         bool              `json:"exclude_hidden,omitempty"`
+	// HiddenOnly 只返回已隐藏的游戏，对齐手机版筛选栏的「隐藏」分类。
+	//
+	// 与 ExcludeHidden 语义相反；两者同时为 true 时以 HiddenOnly 为准
+	// （见 gamehelper.list_query：不能让两个布尔打架就返回空列表）。
+	HiddenOnly         bool                 `json:"hidden_only,omitempty"`
+	Tags               []string             `json:"tags"`
+	ExcludeTags        bool                 `json:"exclude_tags,omitempty"`
+	SortBy             enums.GameListSortBy `json:"sort_by"`
+	SortOrder          enums.SortOrder      `json:"sort_order"`
+	SecondarySortBy    enums.GameListSortBy `json:"secondary_sort_by"`
+	SecondarySortOrder enums.SortOrder      `json:"secondary_sort_order"`
 	// WithPlayTime 为 true 时，响应里额外带回本页每条游戏的累计游玩时长（秒）。
 	// 默认关闭：绝大多数列表调用不需要它，缺省返回避免每次都多一次聚合查询。
 	WithPlayTime bool `json:"with_play_time,omitempty"`

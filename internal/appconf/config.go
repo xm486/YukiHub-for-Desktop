@@ -34,19 +34,28 @@ var defaultMetadataSources = []string{
 	string(enums2.Bangumi),
 	string(enums2.Ymgal),
 	string(enums2.Hikarinagi),
+	string(enums2.NextMoe),
 }
 
 // DefaultCurrentMetadataSource 是「当前资料源」的默认值。
-// 与手机版一致：默认 VNDB（资料最全，且无需 Token）。
-const DefaultCurrentMetadataSource = enums2.VNDB
+//
+// 与手机版一致：默认 NextMoe。它的目录只读面匿名即可调用（与带凭据逐字节相同），
+// 且数据是六源对齐的 —— 一次调用就能拿到 VNDB 评分 + Bangumi 中文名 + ErogameScape 时长，
+// 填充质量最好且不强制用户登录。
+const DefaultCurrentMetadataSource = enums2.NextMoe
 
+// allowedMetadataSourceSet 是设置页「可选资料源」的白名单。
+//
+// 与手机版 metadata/MetadataController.java 的五个有效值一一对应
+// （vndb / bangumi / ymgal / hikarinagi / nextmoe）。**Bangumi 镜像源已下线**
+// （镜像站长期不稳定，且已有 NextMoe 源替代）：历史配置里的 `bangumi_mirror`
+// 由 NormalizeLegacyMetadataSource 静默降级成 bangumi，不再作为可选项暴露。
 var allowedMetadataSourceSet = map[string]struct{}{
-	string(enums2.VNDB):          {},
-	string(enums2.Bangumi):       {},
-	string(enums2.BangumiMirror): {},
-	string(enums2.Ymgal):         {},
-	string(enums2.Hikarinagi):    {},
-	string(enums2.NextMoe):       {},
+	string(enums2.VNDB):       {},
+	string(enums2.Bangumi):    {},
+	string(enums2.Ymgal):      {},
+	string(enums2.Hikarinagi): {},
+	string(enums2.NextMoe):    {},
 }
 
 const legacyOneDriveDefaultClientID = "26fcab6e-41ea-49ff-8ec9-063983cae3ef"
@@ -127,7 +136,7 @@ type AppConfig struct {
 	NextMoeTokenExpiresAt         string   `json:"nextmoe_token_expires_at,omitempty"`
 	NextMoeAccountLabel           string   `json:"nextmoe_account_label,omitempty"`
 	VNDBAccessToken               string   `json:"vndb_access_token,omitempty"`
-	MetadataSources               []string `json:"metadata_sources,omitempty"` // 元数据拉取来源列表（vndb/bangumi/bangumi_mirror/ymgal/hikarinagi/nextmoe）
+	MetadataSources               []string `json:"metadata_sources,omitempty"` // 元数据抓取来源列表（vndb/bangumi/ymgal/hikarinagi/nextmoe）
 	// CurrentMetadataSource 是「当前资料源」：游戏资料优先展示/抓取哪个来源。
 	// 对齐手机版设置里的「右侧资料源」（`metadata_source`）。单个取值，
 	// 与上面「启用了哪些来源」的多选相互独立。

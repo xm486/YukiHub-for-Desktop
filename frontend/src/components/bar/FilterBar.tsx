@@ -42,10 +42,6 @@ interface FilterBarProps {
   // 在卡片上展示当前排序字段对应的值（封面底部覆盖条）
   showSortField?: boolean;
   onShowSortFieldChange?: (value: boolean) => void;
-  // 把「已隐藏」的游戏也算进列表。默认关闭，与手机版 getAll() 的 hidden=0 一致；
-  // 打开后才能看到并恢复被隐藏的游戏。
-  showHiddenGames?: boolean;
-  onShowHiddenGamesChange?: (value: boolean) => void;
   // 状态筛选
   statusFilter?: enums.GameStatus | "";
   onStatusFilterChange?: (value: enums.GameStatus | "") => void;
@@ -98,8 +94,6 @@ export function FilterBar({
   defaultSecondarySortOrder = enums.SortOrder.SortOrderAsc,
   showSortField = false,
   onShowSortFieldChange,
-  showHiddenGames = false,
-  onShowHiddenGamesChange,
   statusFilter,
   onStatusFilterChange,
   statusFilterInverted = false,
@@ -682,24 +676,6 @@ export function FilterBar({
               </div>
             )}
 
-            {onShowHiddenGamesChange && (
-              <div className="px-2 py-1.5">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-brand-700 dark:text-brand-300">
-                    {t("filterBar.showHiddenGames")}
-                  </span>
-                  <BetterSwitch
-                    id="filter-bar-show-hidden-games"
-                    checked={showHiddenGames}
-                    onCheckedChange={onShowHiddenGamesChange}
-                  />
-                </div>
-                <p className="mt-1 text-xs text-brand-500 dark:text-brand-400">
-                  {t("filterBar.showHiddenGamesHint")}
-                </p>
-              </div>
-            )}
-
             {filterPresetMenu && (
               <>
                 {(filterMenuExtra
@@ -716,7 +692,6 @@ export function FilterBar({
             {(filterMenuExtra
               || (statusOptions && onStatusFilterChange)
               || (metadataSourceOptions && onMetadataSourceFilterChange)
-              || onShowHiddenGamesChange
               || filterPresetMenu) && (
               <div className="my-1 border-t border-brand-200 dark:border-brand-700" />
             )}

@@ -8,7 +8,8 @@ import (
 
 func TestNormalizeMetadataSourcesAcceptsOptInSources(t *testing.T) {
 	got := normalizeMetadataSources([]string{"bangumi", "bangumi_mirror", "nextmoe", "hikarinagi", "dlsite", "touchgal", "erogamescape", "BANGUMI_MIRROR", "unknown"})
-	want := []string{"bangumi", "bangumi_mirror", "nextmoe", "hikarinagi"}
+	// bangumi_mirror 已下线：归一到 bangumi，并因去重只保留一份。
+	want := []string{"bangumi", "nextmoe", "hikarinagi"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %#v, got %#v", want, got)
@@ -17,10 +18,60 @@ func TestNormalizeMetadataSourcesAcceptsOptInSources(t *testing.T) {
 
 func TestNormalizeMetadataSourcesUsesExpectedDefaults(t *testing.T) {
 	got := normalizeMetadataSources(nil)
-	want := []string{"vndb", "bangumi", "ymgal", "hikarinagi"}
+	// 与手机版一致：默认启用五源，含 NextMoe。
+	want := []string{"vndb", "bangumi", "ymgal", "hikarinagi", "nextmoe"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+// 已下线的 bangumi_mirror 必须静默降级成 bangumi，而不是被丢掉或回落到默认源。
+// 「回落到默认源」是手机版注释里点名要避免的行为：用户会看到自己的设置凭空变成别的源。
+func TestNormalizeLegacyMetadataSourceFoldsBangumiMirror(t *testing.T) {
+	for _, input := range []string{"bangumi_mirror", "BANGUMI_MIRROR", " bangumi_mirror "} {
+		if got := NormalizeLegacyMetadataSource(input); got != "bangumi" {
+			t.Fatalf("NormalizeLegacyMetadataSource(%q) = %q, want %q", input, got, "bangumi")
+		}
+	}
+	if got := NormalizeLegacyMetadataSource("nextmoe"); got != "nextmoe" {
+		t.Fatalf("NormalizeLegacyMetadataSource(\"nextmoe\") = %q, want %q", got, "nextmoe")
+	}
+	// IsSelectableMetadataSource 与手机版 isValidMetadataSource 一样严格判原值：
+	// 已下线的镜像源不算可选，要折叠后才能通过。
+	if IsSelectableMetadataSource("bangumi_mirror") {
+		t.Fatal("bangumi_mirror 不应再是可选的资料源")
+	}
+	if !IsSelectableMetadataSource(NormalizeLegacyMetadataSource("bangumi_mirror")) {
+		t.Fatal("折叠成 bangumi 后应通过校验")
+	}
+}
+
+func TestDefaultCurrentMetadataSourceIsNextMoe(t *testing.T) {
+	// 默认源与手机版一致是 NextMoe（匿名即可调用，且数据是六源对齐的）。
+	if DefaultCurrentMetadataSource != enums2.NextMoe {
+		t.Fatalf("expected default current metadata source to be NextMoe, got %q", DefaultCurrentMetadataSource)
+	}
+}
+
+func TestNormalizeCurrentMetadataSourceFoldsLegacyMirror(t *testing.T) {
+	config := &AppConfig{CurrentMetadataSource: enums2.BangumiMirror}
+	if !NormalizeCurrentMetadataSource(config) {
+		t.Fatal("expected current metadata source to be normalized")
+	}
+	// 关键：落到 bangumi 而不是默认源 NextMoe —— 用户的显式选择不能被改写意图。
+	if config.CurrentMetadataSource != enums2.Bangumi {
+		t.Fatalf("expected Bangumi, got %q", config.CurrentMetadataSource)
+	}
+}
+
+func TestNormalizeCurrentMetadataSourceKeepsExplicitVNDB(t *testing.T) {
+	config := &AppConfig{CurrentMetadataSource: enums2.VNDB}
+	if NormalizeCurrentMetadataSource(config) {
+		t.Fatal("VNDB 是合法选择，不应被改写")
+	}
+	if config.CurrentMetadataSource != enums2.VNDB {
+		t.Fatalf("expected VNDB, got %q", config.CurrentMetadataSource)
 	}
 }
 

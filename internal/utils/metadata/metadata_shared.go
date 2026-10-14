@@ -136,6 +136,9 @@ type getterConfig struct {
 	bangumiCoverSource    enums2.MetadataCoverSource
 	vndbCoverSource       enums2.MetadataCoverSource
 	steamCoverOrientation enums2.SteamCoverOrientation
+	nextMoeBaseURL        string
+	// rateLimiter 允许注入独立限速器（测试用），nil 时用进程级共享实例。
+	rateLimiter *metadataRateLimiter
 }
 
 type GetterOption func(*getterConfig)
@@ -218,6 +221,26 @@ func WithVNDBCoverSource(source enums2.MetadataCoverSource) GetterOption {
 	}
 }
 
+// withMetadataRateLimiter 注入独立限速器，仅供同包测试使用。
+//
+// 存在的理由：NextMoe 的档位间隔是 700ms/1300ms 量级的真实等待，
+// 测试若走进程级共享限速器就要真的睡够时间；注入一个 now/wait 都被替换掉的实例，
+// 断言可以只关心「取了几次、间隔取的是哪一档」。
+func withMetadataRateLimiter(limiter *metadataRateLimiter) GetterOption {
+	return func(config *getterConfig) {
+		if limiter != nil {
+			config.rateLimiter = limiter
+		}
+	}
+}
+
+// WithNextMoeBaseURL 覆盖 NextMoe 目录 API 基址（测试指向 httptest 用）。
+func WithNextMoeBaseURL(baseURL string) GetterOption {
+	return func(config *getterConfig) {
+		config.nextMoeBaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	}
+}
+
 func newMetadataClient() *http.Client {
 	client, _, err := httputils.NewClient(httputils.ClientOptions{Timeout: metadataHTTPTimeout})
 	if err != nil {
@@ -243,6 +266,12 @@ func newGetterConfig(options []GetterOption) getterConfig {
 	}
 	if !config.hasTagLimit {
 		config.tagLimit = defaultMetadataTagLimit
+	}
+	if config.rateLimiter == nil {
+		config.rateLimiter = sharedMetadataRateLimiter
+	}
+	if config.nextMoeBaseURL == "" {
+		config.nextMoeBaseURL = nextMoeCatalogAPIBaseURL
 	}
 	return config
 }

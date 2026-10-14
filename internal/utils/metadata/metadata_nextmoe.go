@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,23 +16,52 @@ import (
 	"yukihub/internal/version"
 )
 
-// NextMoe（未萌）目录 API 基址。使用用户级 OAuth 令牌（catalog:read）访问，
-// 配额按用户计（100/min），限速与重试策略见 DefaultMetadataRateLimitPolicies。
+// NextMoe（未萌）目录 API 基址。
+//
+// 身份与配额（对齐手机版 NextMoeClient）：
+//   - 匿名（不带 Authorization）：配额按**出口 IP** 计，50/min。目录只读面对
+//     匿名与登录身份返回**逐字节相同**的结果，所以未登录一样能用本源。
+//   - 登录（带用户级 OAuth 令牌，catalog:read）：配额按**用户**计，100/min、
+//     10,000/UTC 日，不受同 IP 他人挤占。
+//
+// 客户端节流间隔（700ms 登录 / 1300ms 匿名）与重试退避见 DefaultMetadataRateLimitPolicies。
+// 这套限速是「不给对方服务器添压力」的第一道闸，任何批量路径都必须先过它再发请求。
 const (
 	nextMoeCatalogAPIBaseURL = "https://api.nextmoe.dev/v2"
 	// 详情需要 include 块按需取；写错的 include 会被服务端 400 拒绝，不做降级。
 	nextMoeDetailInclude = "titles,intros,covers,companies,tags,ratings,playtimes,screenshots"
+
+	// 重试次数与退避起点对齐手机版 NextMoeClient.MAX_RETRIES / RETRY_DELAY_MS。
+	nextMoeMaxRetries = 2
+	nextMoeRetryDelay = 1200 * time.Millisecond
+	// 分钟窗打满时按 Retry-After 等，上限 60s（手机版 Math.min(60, Retry-After)）。
+	nextMoeMaxRetryAfter = 60 * time.Second
+	// 错误体是 RFC 9457 problem+json，很小；读取上限只为防御异常响应。
+	nextMoeMaxErrorBodyBytes = 64 * 1024
+	// 合并重定向最多跟随一次，防止服务端连环改 id 把请求打成死循环。
+	nextMoeMaxMergedFollows = 1
 )
 
-var ErrNextMoeUnauthorized = errors.New("nextmoe unauthorized")
+var (
+	ErrNextMoeUnauthorized = errors.New("nextmoe unauthorized")
+	// ErrNextMoeQuotaExceeded 表示 UTC 日配额已耗尽。
+	// 手机版对此明确**不退避重试**（等下去没有意义），错误文案要能直接给用户看。
+	ErrNextMoeQuotaExceeded = errors.New("nextmoe daily quota exceeded")
+)
 
 func IsNextMoeUnauthorizedError(err error) bool {
 	return errors.Is(err, ErrNextMoeUnauthorized)
 }
 
+func IsNextMoeQuotaExceededError(err error) bool {
+	return errors.Is(err, ErrNextMoeQuotaExceeded)
+}
+
 type NextMoeInfoGetter struct {
 	client   *http.Client
 	tagLimit int
+	limiter  *metadataRateLimiter
+	baseURL  string
 }
 
 func NewNextMoeInfoGetter(options ...GetterOption) *NextMoeInfoGetter {
@@ -39,6 +69,8 @@ func NewNextMoeInfoGetter(options ...GetterOption) *NextMoeInfoGetter {
 	return &NextMoeInfoGetter{
 		client:   config.client,
 		tagLimit: config.tagLimit,
+		limiter:  config.rateLimiter,
+		baseURL:  config.nextMoeBaseURL,
 	}
 }
 
@@ -475,38 +507,213 @@ func trimNextMoeDateByPrecision(date string, precision string) string {
 }
 
 func (g NextMoeInfoGetter) getJSON(path string, params url.Values, token string) ([]byte, error) {
-	if strings.TrimSpace(token) == "" {
-		return nil, errors.New("nextmoe API requires Bearer token")
-	}
+	trimmedToken := strings.TrimSpace(token)
 
-	reqURL := nextMoeCatalogAPIBaseURL + path
+	var lastErr error
+	mergeFollows := 0
+	for attempt := 0; attempt <= nextMoeMaxRetries; attempt++ {
+		result := g.getJSONOnce(g.buildCatalogURL(path, params), trimmedToken)
+		if result.MergedID != "" {
+			// 目录把该 id 合并到了新 id。按 current_id 换新地址再打一次，
+			// 这条**不计入重试次数**（手机版同样处理）—— 让它吃掉一次真正的重试机会，
+			// 在限流场景下会白白少一次退避重试。
+			mergedPath := nextMoeMergedWorksPath(path, result.MergedID)
+			if mergedPath != "" && mergeFollows < nextMoeMaxMergedFollows {
+				mergeFollows++
+				path = mergedPath
+				attempt--
+				continue
+			}
+			result.Err = fmt.Errorf("nextmoe work 已被合并到 %s，但无法自动跟随（来源路径 %s）", result.MergedID, path)
+		}
+		if result.Err == nil {
+			return result.Body, nil
+		}
+
+		lastErr = result.Err
+		// 401（令牌失效）与日配额耗尽都不适合在这里重试：
+		// 前者由 NextMoeService 刷新令牌后重放，后者等下去也不会恢复。
+		if errors.Is(result.Err, ErrNextMoeUnauthorized) || errors.Is(result.Err, ErrNextMoeQuotaExceeded) {
+			return nil, result.Err
+		}
+		if !result.Retryable || attempt >= nextMoeMaxRetries {
+			return nil, result.Err
+		}
+
+		// 退避 = 服务端要求的 Retry-After（若有）**加上**这一轮的指数退避。
+		//
+		// 手机版就是叠加的：429 分支先 `sleep(Retry-After + 250ms)`，抛出后再由
+		// 外层 catch 睡 `RETRY_DELAY_MS * (attempt+1)`。不要写成「取两者较大值」——
+		// 那样在服务端给了 Retry-After 时会**丢掉**指数退避，比手机版更激进，
+		// 对「不给对方服务器添压力」不利。
+		delay := nextMoeRetryDelay * time.Duration(attempt+1)
+		if result.RetryAfter > 0 {
+			delay += result.RetryAfter
+		}
+		if err := g.rateLimiter().wait(context.Background(), delay); err != nil {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+// rateLimiter 兜底成进程级共享限速器，避免零值 getter 直接 panic。
+func (g NextMoeInfoGetter) rateLimiter() *metadataRateLimiter {
+	if g.limiter != nil {
+		return g.limiter
+	}
+	return sharedMetadataRateLimiter
+}
+
+func (g NextMoeInfoGetter) buildCatalogURL(path string, params url.Values) string {
+	baseURL := g.baseURL
+	if baseURL == "" {
+		baseURL = nextMoeCatalogAPIBaseURL
+	}
+	reqURL := baseURL + path
 	if len(params) > 0 {
 		reqURL += "?" + params.Encode()
+	}
+	return reqURL
+}
+
+// nextMoeMergedWorksPath 只在「详情路径」上跟随合并重定向；其它路径返回空串表示跟不了。
+func nextMoeMergedWorksPath(path string, currentID string) string {
+	if currentID == "" || !strings.Contains(path, "/catalog/works/") {
+		return ""
+	}
+	return "/catalog/works/" + url.PathEscape(currentID)
+}
+
+// nextMoeHTTPResult 是一次请求的分类结果，供 getJSON 决定「重试 / 换地址 / 直接上报」。
+type nextMoeHTTPResult struct {
+	Body       []byte
+	Retryable  bool
+	RetryAfter time.Duration
+	// MergedID 非空表示 404 ENTITY_MERGED，这是目录给出的新 id。
+	MergedID string
+	Err      error
+}
+
+func (g NextMoeInfoGetter) getJSONOnce(reqURL string, token string) nextMoeHTTPResult {
+	// 登录可选：有令牌就带上（按用户计配额），没有就走匿名（按来源 IP 计配额）。
+	// 注意这**不是**错误路径 —— 匿名是正常可用档位，只是额度低一些。
+	anonymous := token == ""
+	if err := g.rateLimiter().AcquireForTier(context.Background(), enums.NextMoe, anonymous); err != nil {
+		return nextMoeHTTPResult{Err: fmt.Errorf("nextmoe rate limit wait failed: %w", err)}
 	}
 
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, err
+		return nextMoeHTTPResult{Err: err}
 	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", version.UserAgent())
+	// 未登录时不带 Authorization —— 服务端按来源 IP 计匿名配额。
+	if !anonymous {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 
-	resp, err := doLimitedMetadataRequest(g.client, req, enums.NextMoe)
+	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, err
+		// 传输层失败（超时 / 连接被断）值得按同一套退避再试。
+		return nextMoeHTTPResult{Retryable: true, Err: err}
 	}
 	defer closeResponseBody(resp.Body)
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, nextMoeMaxErrorBodyBytes))
 	if err != nil {
-		return nil, err
+		return nextMoeHTTPResult{Retryable: true, Err: err}
 	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		return nil, fmt.Errorf("%w: %s", ErrNextMoeUnauthorized, strings.TrimSpace(string(body)))
+
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+		return nextMoeHTTPResult{Body: body}
+	case resp.StatusCode == http.StatusUnauthorized:
+		// 令牌无效/过期。这里不自行刷新：刷新与重放统一由 NextMoeService 负责，
+		// 免得元数据层和账号层各刷一次，把 refresh token 轮换打乱。
+		return nextMoeHTTPResult{Err: fmt.Errorf("%w: %s", ErrNextMoeUnauthorized, nextMoeProblemSummary(body))}
+	case resp.StatusCode == http.StatusTooManyRequests:
+		if code := nextMoeProblemCode(body); code == "QUOTA_EXCEEDED" {
+			return nextMoeHTTPResult{
+				Err: fmt.Errorf("%w：今日抓取配额已用完（UTC 零点归零）%s", ErrNextMoeQuotaExceeded, nextMoeAnonymousQuotaHint(anonymous)),
+			}
+		}
+		return nextMoeHTTPResult{
+			Retryable:  true,
+			RetryAfter: nextMoeRetryAfter(resp.Header.Get("Retry-After")),
+			Err:        fmt.Errorf("nextmoe API rate limited: status 429%s", nextMoeAnonymousQuotaHint(anonymous)),
+		}
+	case resp.StatusCode == http.StatusNotFound && nextMoeProblemCode(body) == "ENTITY_MERGED":
+		return nextMoeHTTPResult{MergedID: nextMoeMergedCurrentID(body)}
+	case resp.StatusCode >= 500:
+		return nextMoeHTTPResult{
+			Retryable: true,
+			Err:       fmt.Errorf("nextmoe API returned status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body))),
+		}
+	default:
+		return nextMoeHTTPResult{
+			Err: fmt.Errorf("nextmoe API returned status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body))),
+		}
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("nextmoe API returned status: %d, body: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+// nextMoeAnonymousQuotaHint 只在匿名档受限时追加「怎么提额」的提示。
+// 登录档受限就是账号自己的额度用完了，不该再劝他去登录。
+func nextMoeAnonymousQuotaHint(anonymous bool) string {
+	if !anonymous {
+		return ""
 	}
-	return body, nil
+	return "（当前为匿名配额，按网络出口 IP 计；登录未萌账号可提升抓取配额）"
+}
+
+// nextMoeRetryAfter 读 429 的 Retry-After（秒），按手机版口径截到 60s。
+// 服务端没给或给了非法值就退回 2s。
+func nextMoeRetryAfter(raw string) time.Duration {
+	seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || seconds <= 0 {
+		return 2 * time.Second
+	}
+	delay := time.Duration(seconds) * time.Second
+	if delay > nextMoeMaxRetryAfter {
+		return nextMoeMaxRetryAfter
+	}
+	return delay
+}
+
+// nextMoeProblemCode 取 RFC 9457 problem+json 里的 code；解析不出来返回空串。
+func nextMoeProblemCode(body []byte) string {
+	var problem struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(body, &problem); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(problem.Code)
+}
+
+func nextMoeMergedCurrentID(body []byte) string {
+	var problem struct {
+		CurrentID string `json:"current_id"`
+	}
+	if err := json.Unmarshal(body, &problem); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(problem.CurrentID)
+}
+
+// nextMoeProblemSummary 把错误体压成一行，避免把整段 HTML/JSON 塞进错误消息。
+func nextMoeProblemSummary(body []byte) string {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return "empty response body"
+	}
+	if strings.HasPrefix(trimmed, "<") {
+		// 网关返回 HTML（Cloudflare/反代）时不要把它当成 API 契约的一部分。
+		return "non-JSON response body"
+	}
+	if len(trimmed) > 512 {
+		return trimmed[:512] + "…"
+	}
+	return trimmed
 }

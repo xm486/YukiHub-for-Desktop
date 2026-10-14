@@ -1,7 +1,7 @@
 import type { models, service, vo } from "../../src/bindings/models";
 import type { GameCardLayout } from "../components/card/GameCard";
 import type { ImportSource } from "../components/modal/GameImportModal";
-import type { GameStatusFilter } from "../consts/options";
+import type { GameStatusFilter, HiddenFilter } from "../consts/options";
 import { createRoute, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
@@ -59,7 +59,7 @@ import { BetterButton } from "../components/ui/better/BetterButton";
 import { BetterDropdownMenu } from "../components/ui/better/BetterDropdownMenu";
 import { sourceLabel } from "../components/ui/import/importFlow";
 import { ScrollToTopButton } from "../components/ui/ScrollToTopButton";
-import { sortOptions, statusOptions } from "../consts/options";
+import { DEFAULT_HIDDEN_FILTER, sortOptions, statusOptions } from "../consts/options";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { primeGamePlaytimes } from "../hooks/useGamePlaytime";
 import { usePageScrollControls } from "../hooks/usePageScrollControls";
@@ -216,6 +216,16 @@ function readStoredValue(key: string) {
     return null;
   }
   return window.localStorage.getItem(key);
+}
+
+// readStoredHiddenFilter 恢复上次的隐藏过滤档位。
+// 存的是档位本身（而不是「显示/不显示」布尔），
+// 因为「只看隐藏」不是布尔的补集，旧实现那个布尔存不下这个状态。
+// 早期版本还存在过 `show`（隐藏的也一起显示）这一档，已随分类行改造下线 ——
+// 历史值一律落回默认（hide），不要让它变成一个界面里选不出来的幽灵状态。
+function readStoredHiddenFilter(): HiddenFilter {
+  const saved = readStoredValue(`${LIBRARY_STORAGE_KEY}_hiddenFilter`);
+  return saved === "only" ? "only" : DEFAULT_HIDDEN_FILTER;
 }
 
 function readStoredLibrarySortBy() {
@@ -378,10 +388,12 @@ function LibraryPage() {
         && readStoredLibraryMetadataSourceFilterInverted(),
     );
   const [tagFilterInverted, setTagFilterInverted] = useState(false);
-  // 已隐藏的游戏默认不显示（对齐手机版 GameRepository.getAll 的 hidden=0）。
-  // 打开后才能看到并把它们恢复回来。
-  const [showHiddenGames, setShowHiddenGames] = useState(
-    () => readStoredValue(`${LIBRARY_STORAGE_KEY}_showHiddenGames`) === "true",
+  // 隐藏游戏的过滤档位（对齐手机版筛选栏的「隐藏」分类）：
+  //   hide = 隐藏的不显示（默认，对齐手机版 GameRepository.getAll 的 hidden=0）
+  //   show = 隐藏的一起显示（便于找到并恢复）
+  //   only = 只看已隐藏（就是手机版那项「隐藏」分类）
+  const [hiddenFilter, setHiddenFilter] = useState<HiddenFilter>(() =>
+    readStoredHiddenFilter(),
   );
   const libraryGamesRevision = useGameCacheStore(
     state => state.libraryRevision,
@@ -679,8 +691,10 @@ function LibraryPage() {
         : {}),
       tags: selectedTags,
       exclude_tags: tagFilterInverted && selectedTags.length > 0,
-      // 已隐藏的游戏默认排除，与手机版 getAll() 的 hidden=0 保持一致
-      exclude_hidden: !showHiddenGames,
+      // 隐藏过滤三态：默认排除（与手机版 getAll() 的 hidden=0 一致）；
+      // 「只看隐藏」走 hidden_only，对应手机版筛选栏的「隐藏」分类。
+      exclude_hidden: hiddenFilter === "hide",
+      hidden_only: hiddenFilter === "only",
       sort_by: sortBy,
       sort_order: sortOrder,
       secondary_sort_by: secondarySortBy,
@@ -697,7 +711,7 @@ function LibraryPage() {
       selectedTags,
       secondarySortBy,
       secondarySortOrder,
-      showHiddenGames,
+      hiddenFilter,
       sortBy,
       sortOrder,
       statusFilter,
@@ -711,7 +725,10 @@ function LibraryPage() {
     = debouncedSearchQuery.trim().length > 0
       || selectedTags.length > 0
       || Boolean(statusFilter)
-      || Boolean(metadataSourceFilter);
+      || Boolean(metadataSourceFilter)
+      // 「只看隐藏」也算一种筛选：否则空结果会落到「库是空的 + 导入入口」，
+      // 对着一个只是没有隐藏游戏的库劝用户去导入，非常误导。
+      || hiddenFilter === "only";
   const isEmptyListWaiting
     = total === 0 && (loading || isSearchSettling || loadedQueryKey !== queryKey);
 
@@ -1026,16 +1043,16 @@ function LibraryPage() {
     }
   };
 
-  const handleShowHiddenGamesChange = (value: boolean) => {
-    setShowHiddenGames(value);
-    if (value) {
-      window.localStorage.setItem(
-        `${LIBRARY_STORAGE_KEY}_showHiddenGames`,
-        "true",
-      );
+  const handleHiddenFilterChange = (value: HiddenFilter) => {
+    setHiddenFilter(value);
+    if (value === DEFAULT_HIDDEN_FILTER) {
+      window.localStorage.removeItem(`${LIBRARY_STORAGE_KEY}_hiddenFilter`);
     }
     else {
-      window.localStorage.removeItem(`${LIBRARY_STORAGE_KEY}_showHiddenGames`);
+      window.localStorage.setItem(
+        `${LIBRARY_STORAGE_KEY}_hiddenFilter`,
+        value,
+      );
     }
   };
 
@@ -1331,8 +1348,6 @@ function LibraryPage() {
               setMetadataSourceFilterInverted
             }
             metadataSourceOptions={metadataSourceOptions}
-            showHiddenGames={showHiddenGames}
-            onShowHiddenGamesChange={handleShowHiddenGamesChange}
             storageKey="library"
             onRandomGame={handleOpenRandomGame}
             randomGameDisabled={
@@ -1435,7 +1450,7 @@ function LibraryPage() {
                     onClick: () => handleBatchStatusUpdate(key),
                   }))}
                 />
-                {/* 批量隐藏 / 取消隐藏（取消隐藏需先打开「显示已隐藏」） */}
+                {/* 批量隐藏 / 取消隐藏（取消隐藏需切到「一起显示」或「只看隐藏」） */}
                 <BetterDropdownMenu
                   title={t("library.setHidden")}
                   align="end"
@@ -1584,6 +1599,8 @@ function LibraryPage() {
         <LibraryStatusChipRow
           statusFilter={statusFilter}
           onStatusFilterChange={setStatusFilter}
+          hiddenFilter={hiddenFilter}
+          onHiddenFilterChange={handleHiddenFilterChange}
         />
 
         <div className="flex items-start gap-6">
@@ -1600,8 +1617,18 @@ function LibraryPage() {
                 <div className="flex w-full flex-col items-center justify-center py-20 text-brand-500 dark:text-brand-400">
                   {hasActiveGameFilters ? (
                     <>
-                      <div className="i-mdi-magnify mb-4 text-6xl" />
-                      <p className="text-xl">{t("library.notFound")}</p>
+                      <div
+                        className={`mb-4 text-6xl ${
+                          hiddenFilter === "only"
+                            ? "i-mdi-eye-off-outline"
+                            : "i-mdi-magnify"
+                        }`}
+                      />
+                      <p className="text-xl">
+                        {hiddenFilter === "only"
+                          ? t("library.hiddenEmpty")
+                          : t("library.notFound")}
+                      </p>
                     </>
                   ) : (
                     <>

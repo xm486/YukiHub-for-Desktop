@@ -156,6 +156,57 @@ func TestQueryGameListExcludesHidden(t *testing.T) {
 	}
 }
 
+// HiddenOnly 是手机版筛选栏「隐藏」分类的对应实现：只返回已隐藏的游戏。
+//
+// 这条用例同时钉住两个容易退化的点：
+//   - 只隐藏的游戏进得来（不能连自己都被 ExcludeHidden 挡掉）；
+//   - 与 ExcludeHidden 同时为 true 时以 HiddenOnly 为准，而不是两边打架返回空列表。
+func TestQueryGameListFiltersHiddenOnly(t *testing.T) {
+	db := setupGameListQueryTest(t)
+	if _, err := db.Exec(`
+		INSERT INTO games (
+			id, name, source_type, source_id, hidden,
+			cached_at, created_at, updated_at
+		) VALUES
+			('visible', 'Visible', 'local', '', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+			('hidden', 'Hidden', 'local', '', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`); err != nil {
+		t.Fatalf("insert hidden fixtures: %v", err)
+	}
+
+	response, err := QueryGameList(context.Background(), db, vo.GameListRequest{
+		Limit:      100,
+		HiddenOnly: true,
+		SortBy:     enums.GameListSortByName,
+		SortOrder:  enums.SortOrderAsc,
+	}, GameListScope{})
+	if err != nil {
+		t.Fatalf("query hidden games: %v", err)
+	}
+	if len(response.Games) != 1 || response.Games[0].ID != "hidden" {
+		t.Fatalf("HiddenOnly 应只返回已隐藏的游戏，实际 %#v", response.Games)
+	}
+	// 分页 total 必须与过滤条件一致，否则前端会出现「只看 1 条却显示共 7 条」。
+	if response.Total != 1 {
+		t.Fatalf("HiddenOnly 的 total 应为 1，实际 %d", response.Total)
+	}
+
+	// 两个布尔同时为 true：以 HiddenOnly 为准，不能返回空列表。
+	conflicting, err := QueryGameList(context.Background(), db, vo.GameListRequest{
+		Limit:         100,
+		HiddenOnly:    true,
+		ExcludeHidden: true,
+		SortBy:        enums.GameListSortByName,
+		SortOrder:     enums.SortOrderAsc,
+	}, GameListScope{})
+	if err != nil {
+		t.Fatalf("query with conflicting hidden flags: %v", err)
+	}
+	if len(conflicting.Games) != 1 || conflicting.Games[0].ID != "hidden" {
+		t.Fatalf("HiddenOnly 应优先于 ExcludeHidden，实际 %#v", conflicting.Games)
+	}
+}
+
 func TestQueryGameListUsesSecondarySort(t *testing.T) {
 	db := setupGameListQueryTest(t)
 	if _, err := db.Exec(`

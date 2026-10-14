@@ -2,6 +2,20 @@ import { enums } from "../../src/bindings/models";
 
 export type GameStatusFilter = enums.GameStatus | "";
 
+/**
+ * 隐藏游戏的过滤档位（对齐手机版筛选栏的「隐藏」分类）。
+ *
+ * - `hide`：隐藏的游戏不进列表（默认，对齐手机版 `GameRepository.getAll` 的 `hidden=0`）
+ * - `only`：**只看已隐藏的游戏** —— 就是手机版筛选栏里那项「隐藏」分类，
+ *   也是「误隐藏了想找回来」的唯一入口
+ *
+ * 之所以只有两档：手机版的分类行本身就是**单选**（点了「隐藏」就离开状态筛选），
+ * 不存在「既看正常游戏又混着看已隐藏」这一档。
+ */
+export type HiddenFilter = "hide" | "only";
+
+export const DEFAULT_HIDDEN_FILTER: HiddenFilter = "hide";
+
 export const statusOptions: Array<{ label: string; value: GameStatusFilter }>
   = [
     { label: "common.allStatus", value: "" },

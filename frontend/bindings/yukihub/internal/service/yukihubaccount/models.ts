@@ -196,6 +196,19 @@ export class Friend {
     "signature"?: string;
 
     /**
+     * NameColor 是「萌萌点」购买的自定义昵称颜色（服务端下发 6 位 hex，空串=用默认色）。
+     * 对齐手机版 FriendInfo.nameColor 与 FriendsChatDialog.parseNameColor：
+     * 解析失败一律当作未设置，回退默认颜色，绝不把非法值塞进 style。
+     */
+    "nameColor"?: string;
+
+    /**
+     * Frame 是好友装备的头像框；服务端没戴框时下发 JSON null（→ nil）。
+     * 与消息上的 SenderFrame 同一种结构，渲染共用 ChatAvatar。
+     */
+    "frame"?: AvatarFrame | null;
+
+    /**
      * Status：online / away / offline（服务端按心跳时间判定，90s 内 online，
      * 90~300s away，超过 300s offline）
      */
@@ -215,6 +228,14 @@ export class Friend {
     "lastMessage"?: string;
     "lastMessageAt"?: string;
     "unreadCount": number;
+
+    /**
+     * LastHeartbeat 是对方最后一次心跳的时间（服务端下发的本地时间字符串，
+     * 形如 "2026-05-31 12:00:00"）。好友排序的第三级键：同组内按它倒序，
+     * 缺失/解析不出来的排最后。对齐手机版 FriendInfo.lastHeartbeat 与
+     * FriendsChatDialog.parseHeartbeatMillis。
+     */
+    "lastHeartbeat"?: string;
 
     /**
      * FriendStatus：none（不是好友）/ pending（申请中）/ accepted（已是好友）。
@@ -251,7 +272,11 @@ export class Friend {
      * Creates a new Friend instance from a string or object.
      */
     static createFrom($$source: any = {}): Friend {
+        const $$createField6_0 = $$createType1;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("frame" in $$parsedSource) {
+            $$parsedSource["frame"] = $$createField6_0($$parsedSource["frame"]);
+        }
         return new Friend($$parsedSource as Partial<Friend>);
     }
 }

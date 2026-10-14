@@ -72,6 +72,9 @@ type StartService struct {
 	sessionService     *SessionService
 	activeTimeTracker  *timerutils.ActiveTimeTracker
 	runtime            wailsruntime.Runtime
+	// playReporter 由 main 注入（AccountService）：会话结算后把这次游玩上报
+	// 账号服务端，计入游戏经验与网页端每日任务时长。见 account_play_report.go。
+	playReporter playSessionReporter
 
 	activeSessions   map[string]*activePlaySession
 	activeSessionsMu sync.Mutex
@@ -228,6 +231,15 @@ func (s *StartService) SetIntegrationService(integrationService *IntegrationServ
 //wails:ignore
 func (s *StartService) SetSessionService(sessionService *SessionService) {
 	s.sessionService = sessionService
+}
+
+// SetPlaySessionReporter 设置「游玩会话结算后上报服务端」的接收方（账号服务）。
+//
+// 不上报也不影响本地统计：没登录 / 没注入时整条链路静默跳过。
+//
+//wails:ignore
+func (s *StartService) SetPlaySessionReporter(reporter playSessionReporter) {
+	s.playReporter = reporter
 }
 
 // StartGameWithTracking 启动游戏并自动追踪游玩时长
@@ -885,10 +897,28 @@ func (s *StartService) finalizePlaySessionOnce(session *activePlaySession, reaso
 	s.emitGameRuntimeIdle(session, "session-finalized")
 	s.requestHomeRefresh()
 
+	// 上报游玩时长到账号服务端（游戏经验 + 网页端每日任务时长）。
+	// 上报的是**本地已落库的那条记录**（起始时间 + 结算时长），不是墙钟跨度 ——
+	// 「仅记录活跃时长」模式下两者能差出很多，按墙钟发会把每日任务时长虚报。
+	s.reportPlaySessionAsync(sessionID, session.game.Name, startTime, duration)
+
 	// 自动备份游戏存档
 	if s.config.AutoBackupGameSave && s.backupService != nil {
 		s.autoBackupGameSave(gameID)
 	}
+}
+
+// reportPlaySessionAsync 异步上报一次游玩会话。
+//
+// 为什么必须异步：这是网络调用，而调用点在「游戏退出 → 界面回到空闲」这条
+// 路径上，用户对这里变慢非常敏感（同步等过一次握手就会被投诉）。
+// 上报失败只留日志，本地 play_sessions 已经落库，统计不受影响。
+func (s *StartService) reportPlaySessionAsync(sessionID, gameTitle string, startTime time.Time, durationSeconds int) {
+	reporter := s.playReporter
+	if reporter == nil {
+		return
+	}
+	go reporter.reportPlaySession(sessionID, gameTitle, startTime, durationSeconds)
 }
 
 // StartManualPlaySession starts a manual play session: it only records time and

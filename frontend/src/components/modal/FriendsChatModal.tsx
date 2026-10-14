@@ -39,6 +39,11 @@ import {
 import { onWailsEvent } from "../../../src/bindings/runtime";
 import { useAccountStatus } from "../../hooks/useAccountStatus";
 import { resolveChatMediaURL } from "../../utils/chatMedia";
+import {
+  formatFriendLastSeen,
+  FRIEND_SECTION_KEYS,
+  sectionFriends,
+} from "../../utils/friendSort";
 import { proxiedImageSrc } from "../../utils/imageProxy";
 import {
   presencePlatformLabelKey,
@@ -745,28 +750,14 @@ export function FriendsChatModal({
     }
   };
 
-  /** 好友列表分组：正在游戏 → 在线 → 离线（Steam 风格） */
+  /**
+   * 好友列表分组：未读消息 → 正在游戏 → 在线 → 离线（Steam 风格）。
+   *
+   * 排序/分区的实现抽在 `utils/friendSort.ts`，与游戏内浮层共用一份 ——
+   * 两处各写一份的话，同一份数据会在两个界面里排出不同的顺序。
+   */
   const friendSections = useMemo(() => {
-    const friends = friendList?.friends ?? [];
-    const playing: Friend[] = [];
-    const online: Friend[] = [];
-    const offline: Friend[] = [];
-    for (const friend of friends) {
-      if (friend.status === "online" && friend.activity?.trim()) {
-        playing.push(friend);
-      }
-      else if (
-        friend.status === "online"
-        || friend.status === "away"
-        || friend.status === "busy"
-      ) {
-        online.push(friend);
-      }
-      else {
-        offline.push(friend);
-      }
-    }
-    return { playing, online, offline };
+    return sectionFriends(friendList?.friends ?? []);
   }, [friendList]);
 
   if (!isOpen) {
@@ -805,6 +796,45 @@ export function FriendsChatModal({
       >
         {(name || "?").slice(0, 1).toUpperCase()}
       </div>
+    );
+  };
+
+  /**
+   * 好友行第二行（Steam 风格），优先级对齐手机版 FriendsChatDialog.buildFriendItem：
+   *
+   *   1. 在线 **且** 有正在玩的游戏 → 绿色「正在玩：xxx」
+   *   2. 离线 / 离开 且 有心跳时间 → 「最后在线 X」
+   *   3. 其余 → 个性签名 → 本地状态文案
+   *
+   * 两处容易写错、且和手机版逐字对应的地方：
+   *   - 只有 status === "online" 才算「在线」，**busy（忙碌）不算** ——
+   *     手机版 isOnline() 就是 `"online".equals(status)`；
+   *   - 「最后在线」的适用档是 offline / away，busy 落进第 3 档走签名。
+   *
+   * 「最后一条消息」是桌面端多出来的兜底：手机端列表不显示它，但桌面窗口更宽，
+   * 有未读时它比状态文案有用得多，所以放在签名之后、状态文案之前。
+   */
+  const renderFriendSubtitle = (friend: Friend) => {
+    const activity = friend.activity?.trim();
+    if (friend.status === "online" && activity) {
+      return <span className="truncate text-[#90BA3C]">{activity}</span>;
+    }
+    if (friend.status === "offline" || friend.status === "away") {
+      const lastSeen = formatFriendLastSeen(friend.lastHeartbeat, t);
+      if (lastSeen) {
+        return (
+          <span className="truncate">
+            {t("friendsChat.lastSeen", { time: lastSeen })}
+          </span>
+        );
+      }
+    }
+    return (
+      <span className="truncate">
+        {friend.signature?.trim()
+          || friend.lastMessage
+          || t(`friendsChat.status.${friend.status || "offline"}`)}
+      </span>
     );
   };
 
@@ -1295,23 +1325,17 @@ export function FriendsChatModal({
                         </div>
                       )}
 
-                      {(
-                        [
-                          ["playing", friendSections.playing],
-                          ["online", friendSections.online],
-                          ["offline", friendSections.offline],
-                        ] as const
-                      ).map(([key, list]) =>
-                        list.length > 0 ? (
+                      {FRIEND_SECTION_KEYS.map(key =>
+                        friendSections[key].length > 0 ? (
                           <div key={key}>
                             <p className="mb-1.5 mt-2 text-[11px] font-semibold uppercase tracking-wide text-brand-400 dark:text-brand-500">
                               {t(`friendsChat.section.${key}`)}
                               {" "}
                               —
-                              {list.length}
+                              {friendSections[key].length}
                             </p>
                             <div className="flex flex-col gap-1">
-                              {list.map(friend => (
+                              {friendSections[key].map(friend => (
                                 <button
                                   key={friend.id}
                                   type="button"
@@ -1329,16 +1353,29 @@ export function FriendsChatModal({
                                   className="flex items-center gap-3 rounded-xl p-2 text-left transition-colors hover:bg-brand-100 dark:hover:bg-brand-700/60"
                                 >
                                   <div className="relative">
-                                    {renderAvatar(
-                                      friend.note || friend.nickname,
-                                      friend.avatar,
-                                    )}
+                                    <ChatAvatar
+                                      name={
+                                        friend.note || friend.nickname || ""
+                                      }
+                                      avatar={friend.avatar}
+                                      size={40}
+                                      frame={friend.frame}
+                                    />
                                     <span className="absolute -bottom-0.5 -right-0.5">
                                       {statusDot(friend.status)}
                                     </span>
                                   </div>
                                   <div className="min-w-0 flex-1">
-                                    <div className="truncate text-sm font-medium text-brand-800 dark:text-brand-100">
+                                    <div
+                                      className="truncate text-sm font-medium text-brand-800 dark:text-brand-100"
+                                      // 昵称颜色：装备了「萌萌点」颜色就用它，否则用主题默认色
+                                      // （对齐手机版 parseNameColor 的「非法值当没设置」语义）
+                                      style={
+                                        friend.nameColor
+                                          ? { color: friend.nameColor }
+                                          : undefined
+                                      }
+                                    >
                                       {friend.note || friend.nickname}
                                       {friend.note && (
                                         <span className="ml-1 text-[11px] font-normal text-brand-400">
@@ -1360,13 +1397,7 @@ export function FriendsChatModal({
                                           )}
                                         />
                                       )}
-                                      <span className="truncate">
-                                        {friend.activity
-                                          || friend.lastMessage
-                                          || t(
-                                            `friendsChat.status.${friend.status || "offline"}`,
-                                          )}
-                                      </span>
+                                      {renderFriendSubtitle(friend)}
                                     </div>
                                   </div>
                                   {friend.unreadCount > 0 && (

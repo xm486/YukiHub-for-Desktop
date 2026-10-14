@@ -230,20 +230,15 @@ func (s *NextMoeService) Disconnect() (vo.NextMoeAuthStatus, error) {
 
 func (s *NextMoeService) fetchMetadataByID(ctx context.Context, sourceID string) (metadata.MetadataResult, error) {
 	getter := s.newMetadataGetter()
-	token, err := s.getValidAccessToken(ctx)
-	if err != nil {
-		return metadata.MetadataResult{}, err
-	}
+	token := s.resolveAccessToken(ctx)
 
 	result, err := getter.FetchMetadata(sourceID, token)
-	if err == nil || !metadata.IsNextMoeUnauthorizedError(err) {
+	if err == nil || !metadata.IsNextMoeUnauthorizedError(err) || token == "" {
 		return result, err
 	}
-	refreshedToken, refreshErr := s.refreshAccessToken(ctx)
-	if refreshErr != nil {
-		return metadata.MetadataResult{}, refreshErr
-	}
-	return getter.FetchMetadata(sourceID, refreshedToken)
+	return retryNextMoeWithRefreshedToken(s, ctx, func(retryToken string) (metadata.MetadataResult, error) {
+		return getter.FetchMetadata(sourceID, retryToken)
+	})
 }
 
 func (s *NextMoeService) fetchMetadataByName(ctx context.Context, name string) (metadata.MetadataResult, error) {
@@ -256,43 +251,81 @@ func (s *NextMoeService) fetchMetadataByName(ctx context.Context, name string) (
 
 func (s *NextMoeService) fetchMetadataCandidatesByName(ctx context.Context, name string) ([]metadata.MetadataResult, error) {
 	getter := s.newMetadataGetter()
-	token, err := s.getValidAccessToken(ctx)
-	if err != nil {
-		return nil, err
-	}
+	token := s.resolveAccessToken(ctx)
 
 	result, err := getter.FetchMetadataCandidatesByName(name, token)
-	if err == nil || !metadata.IsNextMoeUnauthorizedError(err) {
+	if err == nil || !metadata.IsNextMoeUnauthorizedError(err) || token == "" {
 		return result, err
 	}
+	return retryNextMoeWithRefreshedToken(s, ctx, func(retryToken string) ([]metadata.MetadataResult, error) {
+		return getter.FetchMetadataCandidatesByName(name, retryToken)
+	})
+}
+
+// retryNextMoeWithRefreshedToken 在「带着令牌仍被拒（401）」时刷新一次令牌并重放。
+//
+// 刷新失败**不**把整次抓取判死：账号处于登录态但令牌不可用时退回匿名档重放
+// （目录只读面对两种身份返回逐字节相同），并留一条 warning ——
+// 与手机版 NextMoeClient.apiGetOnce 的降级语义一致。
+// 关键点是**不能静默**：否则用户会「以为在用账号配额、其实按 IP 被限流」，
+// 那正是「登录了额度还是一样」的观感来源。
+//
+// 写成包级泛型函数而不是方法，是因为 Go 不允许方法带类型参数。
+func retryNextMoeWithRefreshedToken[T any](
+	s *NextMoeService,
+	ctx context.Context,
+	replay func(token string) (T, error),
+) (T, error) {
+	var zero T
+
 	refreshedToken, refreshErr := s.refreshAccessToken(ctx)
-	if refreshErr != nil {
-		return nil, refreshErr
+	if refreshErr != nil || strings.TrimSpace(refreshedToken) == "" {
+		applog.LogWarningf(s.ctx, "NextMoe access token refresh failed, replaying with the anonymous quota: %v", refreshErr)
+		return replay("")
 	}
-	return getter.FetchMetadataCandidatesByName(name, refreshedToken)
+
+	result, err := replay(refreshedToken)
+	if err == nil {
+		return result, nil
+	}
+	if metadata.IsNextMoeUnauthorizedError(err) {
+		// 刷新过还是 401：令牌已被服务端撤销，必须让用户去重新授权，
+		// 不能无声退化成匿名档。
+		return zero, fmt.Errorf("NextMoe 登录已失效，请在「设置 → 数据来源」重新登录 NextMoe 账号：%w", err)
+	}
+	return result, err
 }
 
-func (s *NextMoeService) newMetadataGetter() *metadata.NextMoeInfoGetter {
-	return metadata.NewNextMoeInfoGetter(gamehelper.MetadataGetterOptions(s.config)...)
-}
-
-func (s *NextMoeService) getValidAccessToken(ctx context.Context) (string, error) {
+// resolveAccessToken 返回本次请求要带的访问令牌；空串表示按匿名档发送。
+//
+// 与手机版 NextMoeClient.apiGetOnce 的「登录可选」语义一致：目录只读面对匿名与
+// 登录身份返回逐字节相同的结果，所以未登录一样能用本源（只是配额按出口 IP 计）。
+// 账号处于登录态却拿不到可用令牌（刷新失败 / 瞬态故障）时，退化为匿名并留痕。
+func (s *NextMoeService) resolveAccessToken(ctx context.Context) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.config == nil {
-		return "", fmt.Errorf("NextMoe 配置未初始化")
+		return ""
 	}
-
 	accessToken := strings.TrimSpace(s.config.NextMoeAccessToken)
 	if accessToken != "" && !s.shouldRefreshTokenLocked() {
-		return accessToken, nil
+		return accessToken
 	}
 	if strings.TrimSpace(s.config.NextMoeRefreshToken) == "" {
-		return "", fmt.Errorf("NextMoe 未授权")
+		return ""
 	}
 
-	return s.refreshAccessTokenLocked(ctx)
+	token, err := s.refreshAccessTokenLocked(ctx)
+	if err != nil {
+		applog.LogWarningf(s.ctx, "NextMoe access token unavailable, request will use the anonymous quota: %v", err)
+		return ""
+	}
+	return token
+}
+
+func (s *NextMoeService) newMetadataGetter() *metadata.NextMoeInfoGetter {
+	return metadata.NewNextMoeInfoGetter(gamehelper.MetadataGetterOptions(s.config)...)
 }
 
 func (s *NextMoeService) refreshAccessToken(ctx context.Context) (string, error) {

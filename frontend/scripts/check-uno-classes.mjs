@@ -22,7 +22,10 @@ import { presetWind3 } from "unocss";
  *   2. `animate-<名字>` 必须是主题里声明过的动画，或 presetWind 自带的那几个；
  *   3. `(max-w|min-w|max-h|min-h)-<名字>` 的名字必须来自 presetWind3 的尺寸主题、
  *      本仓库 theme 的补充，或 CSS 尺寸关键字；纯数字与任意值（`max-w-[86vh]`）
- *      交给 spacing / bracket 解析，不参与判断。
+ *      交给 spacing / bracket 解析，不参与判断；
+ *   4. `i-<集合>-<图标名>` 必须在已安装的 `@iconify-json/<集合>` 里真实存在 ——
+ *      图标写错同样是**静默失效**：类名不生成任何 CSS，按钮上就是一片空白，
+ *      连 hover 都没有提示，比色阶错了更难发现。
  */
 
 const frontendRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -149,6 +152,40 @@ function collectSourceFiles(directory, result = []) {
   return result;
 }
 
+/**
+ * 读取已安装的图标集合：`@iconify-json/<name>/icons.json` 是纯 JSON，
+ * 名字都在 `icons` 里（`aliases` 也要算，别名同样能生成 CSS）。
+ */
+function readIconSets() {
+  const directory = join(frontendRoot, "node_modules", "@iconify-json");
+  const sets = new Map();
+  let entries = [];
+  try {
+    entries = readdirSync(directory);
+  }
+  catch {
+    return sets;
+  }
+  for (const entry of entries) {
+    try {
+      const data = JSON.parse(
+        readFileSync(join(directory, entry, "icons.json"), "utf8"),
+      );
+      sets.set(
+        entry,
+        new Set([
+          ...Object.keys(data.icons ?? {}),
+          ...Object.keys(data.aliases ?? {}),
+        ]),
+      );
+    }
+    catch {
+      // 不是图标集合目录（或没有 icons.json）：跳过，不影响其它检查
+    }
+  }
+  return sets;
+}
+
 const palettes = readPalettes(readFileSync(configPath, "utf8"));
 const animations = readAnimations(readFileSync(configPath, "utf8"));
 const paletteNames = [...palettes.keys()].join("|");
@@ -201,6 +238,16 @@ const animatePattern = /\banimate-([a-z][\w-]*)\b/g;
 // 名字可以以数字开头（2xl / 8xl），但纯数字不查（那是 spacing 档位，一定存在）
 const sizePattern = /\b(max-w|min-w|max-h|min-h)-([a-z][\w-]*|\d+[a-z][\w-]*)\b/g;
 
+// 图标：只有集合名来自**已安装的** @iconify-json 时才参与判断，
+// 这样 `i-mdi-x` / `i-some-other-x` 之类的普通字符串不会被误报。
+const iconSets = readIconSets();
+const iconPattern = iconSets.size > 0
+  ? new RegExp(
+      String.raw`\bi-(${[...iconSets.keys()].join("|")})-([a-z0-9]+(?:-[a-z0-9]+)*)\b`,
+      "g",
+    )
+  : null;
+
 const problems = [];
 
 for (const path of filesToScan) {
@@ -249,6 +296,18 @@ for (const path of filesToScan) {
         `${displayPath}:${index + 1}  主题里没有尺寸档位 ${name} → ${full} 会被静默丢弃`,
       );
     }
+
+    if (iconPattern) {
+      for (const match of line.matchAll(iconPattern)) {
+        const [full, collection, name] = match;
+        if (iconSets.get(collection)?.has(name)) {
+          continue;
+        }
+        problems.push(
+          `${displayPath}:${index + 1}  @iconify-json/${collection} 里没有图标 ${name} → ${full} 会渲染成空白`,
+        );
+      }
+    }
   });
 }
 
@@ -258,9 +317,12 @@ if (problems.length > 0) {
     console.error(`  ${problem}`);
   }
   console.error(
-    `\n共 ${problems.length} 处。请在 uno.config.ts 的 theme 里补齐色阶 / 动画 / 尺寸档位后再提交。`,
+    `\n共 ${problems.length} 处。请在 uno.config.ts 的 theme 里补齐色阶 / 动画 / 尺寸档位，`
+    + `或改用 @iconify-json 里真实存在的图标名后再提交。`,
   );
   process.exit(1);
 }
 
-console.log("UnoCSS 令牌检查通过：色阶、动画、尺寸档位都没有引用未定义的令牌。");
+console.log(
+  "UnoCSS 令牌检查通过：色阶、动画、尺寸档位、图标都没有引用未定义的令牌。",
+);

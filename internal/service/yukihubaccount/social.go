@@ -44,6 +44,13 @@ type Friend struct {
 	Nickname  string `json:"nickname"`
 	Avatar    string `json:"avatar,omitempty"`
 	Signature string `json:"signature,omitempty"`
+	// NameColor 是「萌萌点」购买的自定义昵称颜色（服务端下发 6 位 hex，空串=用默认色）。
+	// 对齐手机版 FriendInfo.nameColor 与 FriendsChatDialog.parseNameColor：
+	// 解析失败一律当作未设置，回退默认颜色，绝不把非法值塞进 style。
+	NameColor string `json:"nameColor,omitempty"`
+	// Frame 是好友装备的头像框；服务端没戴框时下发 JSON null（→ nil）。
+	// 与消息上的 SenderFrame 同一种结构，渲染共用 ChatAvatar。
+	Frame *AvatarFrame `json:"frame,omitempty"`
 	// Status：online / away / offline（服务端按心跳时间判定，90s 内 online，
 	// 90~300s away，超过 300s offline）
 	Status string `json:"status,omitempty"`
@@ -56,6 +63,11 @@ type Friend struct {
 	LastMessage   string `json:"lastMessage,omitempty"`
 	LastMessageAt string `json:"lastMessageAt,omitempty"`
 	UnreadCount   int    `json:"unreadCount"`
+	// LastHeartbeat 是对方最后一次心跳的时间（服务端下发的本地时间字符串，
+	// 形如 "2026-05-31 12:00:00"）。好友排序的第三级键：同组内按它倒序，
+	// 缺失/解析不出来的排最后。对齐手机版 FriendInfo.lastHeartbeat 与
+	// FriendsChatDialog.parseHeartbeatMillis。
+	LastHeartbeat string `json:"lastHeartbeat,omitempty"`
 	// FriendStatus：none（不是好友）/ pending（申请中）/ accepted（已是好友）。
 	// 只有搜索结果会下发 —— 手机版据此把「加好友」按钮换成「已发送请求 / 已是好友」
 	// （FriendsChatDialog.renderSearchResults）。以前这里没解析，界面就只能一直显示
@@ -136,6 +148,36 @@ type AvatarFrame struct {
 	Scale    float64 `json:"scale,omitempty"`
 	OffsetX  float64 `json:"offsetX,omitempty"`
 	OffsetY  float64 `json:"offsetY,omitempty"`
+}
+
+// parseSocialAvatarFrame 从一条 JSON 记录里解析头像框，按 keys 顺序取第一个**有效**的。
+//
+// 「有效」= 是个 JSON object 且带 imageUrl（手机版 AvatarFrame.isValid 同规则）：
+// 服务端没戴框时下发 JSON null，残缺数据（只有 key 没有图）也不该当框用 —— 否则
+// 界面会挂一个 404 的空图，看起来像头像被裁掉了。
+//
+// 三处（群聊消息的 senderFrame、资料页的 senderFrame/frame、好友项的 frame）
+// 共用这一个实现：键名与判空规则各有细微差别，各写一份必然漂移。
+func parseSocialAvatarFrame(raw map[string]any, keys ...string) *AvatarFrame {
+	for _, key := range keys {
+		frameRaw, ok := raw[key].(map[string]any)
+		if !ok {
+			continue
+		}
+		imageURL := pickString(frameRaw, "imageUrl", "image_url", "image")
+		if strings.TrimSpace(imageURL) == "" {
+			continue
+		}
+		return &AvatarFrame{
+			Key:      pickString(frameRaw, "key"),
+			Name:     pickString(frameRaw, "name"),
+			ImageURL: imageURL,
+			Scale:    pickFloat64(frameRaw, "scale"),
+			OffsetX:  pickFloat64(frameRaw, "offsetX", "offset_x"),
+			OffsetY:  pickFloat64(frameRaw, "offsetY", "offset_y"),
+		}
+	}
+	return nil
 }
 
 // ChatGroup 是一个群聊。
@@ -493,23 +535,7 @@ func (c *Client) UserProfile(ctx context.Context, token string, uid int64) (User
 		profile.UID = uid
 	}
 	// 资料页的头像框字段名以 senderFrame 同款结构下发；两种键名都容忍。
-	for _, key := range []string{"senderFrame", "frame"} {
-		if frameRaw, ok := body[key].(map[string]any); ok {
-			imageURL := pickString(frameRaw, "imageUrl", "image_url", "image")
-			if strings.TrimSpace(imageURL) == "" {
-				continue
-			}
-			profile.Frame = &AvatarFrame{
-				Key:      pickString(frameRaw, "key"),
-				Name:     pickString(frameRaw, "name"),
-				ImageURL: imageURL,
-				Scale:    pickFloat64(frameRaw, "scale"),
-				OffsetX:  pickFloat64(frameRaw, "offsetX", "offset_x"),
-				OffsetY:  pickFloat64(frameRaw, "offsetY", "offset_y"),
-			}
-			break
-		}
-	}
+	profile.Frame = parseSocialAvatarFrame(body, "senderFrame", "frame")
 	return profile, nil
 }
 
@@ -678,6 +704,12 @@ func parseFriend(raw map[string]any) Friend {
 		LastMessage:   pickString(raw, "lastMessage", "last_message"),
 		LastMessageAt: pickString(raw, "lastMessageAt", "last_message_at", "updatedAt"),
 		UnreadCount:   int(pickInt64(raw, "unreadCount", "unread")),
+		LastHeartbeat: pickString(raw, "lastHeartbeat", "last_heartbeat"),
+
+		NameColor: pickString(raw, "nameColor", "name_color"),
+		// frame：JSON null / 缺失都表示「没戴框」；只有真解析出 imageUrl 才算戴上。
+		// 手机版 AvatarFrame.isValid() 同口径 —— 残缺数据（只有 key 没图）不能当框用。
+		Frame: parseSocialAvatarFrame(raw, "frame"),
 
 		FriendStatus:    pickString(raw, "friendStatus", "friend_status"),
 		FriendDirection: pickString(raw, "friendDirection", "friend_direction"),
@@ -728,20 +760,7 @@ func parseChatMessage(raw map[string]any) ChatMessage {
 	}
 	// senderFrame：JSON null / 缺失都表示「没戴框」（桌面端每次都实时拉取，
 	// 不做手机版那种「确认摘下」的覆盖语义，所以不需要哨兵值）。
-	if frameRaw, ok := raw["senderFrame"].(map[string]any); ok {
-		frame := &AvatarFrame{
-			Key:      pickString(frameRaw, "key"),
-			Name:     pickString(frameRaw, "name"),
-			ImageURL: pickString(frameRaw, "imageUrl", "image_url", "image"),
-			Scale:    pickFloat64(frameRaw, "scale"),
-			OffsetX:  pickFloat64(frameRaw, "offsetX", "offset_x"),
-			OffsetY:  pickFloat64(frameRaw, "offsetY", "offset_y"),
-		}
-		// 只有真的带图才算框（手机版 isValid 同规则）
-		if strings.TrimSpace(frame.ImageURL) != "" {
-			message.SenderFrame = frame
-		}
-	}
+	message.SenderFrame = parseSocialAvatarFrame(raw, "senderFrame")
 	if message.MsgType == "" {
 		message.MsgType = MsgTypeText
 	}

@@ -71,10 +71,10 @@
     "vite": "^7.3.6"
   },
   "lint-staged": {
-    "*.{js,jsx,ts,tsx}": [
+    "*.{js,jsx,ts,tsx,mjs}": [
       "eslint --fix --no-warn-ignored"
     ],
-    "*.{js,jsx,ts,tsx,json,css,md}": [
+    "*.{json,css,md}": [
       "prettier --write"
     ]
   },

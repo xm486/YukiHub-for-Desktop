@@ -714,6 +714,14 @@ export class CategoryGameListRequest {
     "metadata_source"?: enums$0.SourceType | null;
     "exclude_metadata_source"?: boolean;
     "exclude_hidden"?: boolean;
+
+    /**
+     * HiddenOnly 只返回已隐藏的游戏，对齐手机版筛选栏的「隐藏」分类。
+     * 
+     * 与 ExcludeHidden 语义相反；两者同时为 true 时以 HiddenOnly 为准
+     * （见 gamehelper.list_query：不能让两个布尔打架就返回空列表）。
+     */
+    "hidden_only"?: boolean;
     "tags": string[];
     "exclude_tags"?: boolean;
     "sort_by": enums$0.GameListSortBy;
@@ -764,10 +772,10 @@ export class CategoryGameListRequest {
      * Creates a new CategoryGameListRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): CategoryGameListRequest {
-        const $$createField9_0 = $$createType0;
+        const $$createField10_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField9_0($$parsedSource["tags"]);
+            $$parsedSource["tags"] = $$createField10_0($$parsedSource["tags"]);
         }
         return new CategoryGameListRequest($$parsedSource as Partial<CategoryGameListRequest>);
     }
@@ -1410,6 +1418,14 @@ export class GameListRequest {
     "metadata_source"?: enums$0.SourceType | null;
     "exclude_metadata_source"?: boolean;
     "exclude_hidden"?: boolean;
+
+    /**
+     * HiddenOnly 只返回已隐藏的游戏，对齐手机版筛选栏的「隐藏」分类。
+     * 
+     * 与 ExcludeHidden 语义相反；两者同时为 true 时以 HiddenOnly 为准
+     * （见 gamehelper.list_query：不能让两个布尔打架就返回空列表）。
+     */
+    "hidden_only"?: boolean;
     "tags": string[];
     "exclude_tags"?: boolean;
     "sort_by": enums$0.GameListSortBy;
@@ -1457,10 +1473,10 @@ export class GameListRequest {
      * Creates a new GameListRequest instance from a string or object.
      */
     static createFrom($$source: any = {}): GameListRequest {
-        const $$createField8_0 = $$createType0;
+        const $$createField9_0 = $$createType0;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("tags" in $$parsedSource) {
-            $$parsedSource["tags"] = $$createField8_0($$parsedSource["tags"]);
+            $$parsedSource["tags"] = $$createField9_0($$parsedSource["tags"]);
         }
         return new GameListRequest($$parsedSource as Partial<GameListRequest>);
     }

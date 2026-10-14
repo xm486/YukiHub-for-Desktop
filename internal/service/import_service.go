@@ -338,16 +338,19 @@ func (s *ImportService) applyImportedMetadataSource(source string) {
 //
 // 返回采纳后的取值与「是否发生了变化」；changed=false 表示保持原值。
 // 白名单外（steam / dlsite 等桌面端独有来源、以及任何拼写错误）一律不采纳 ——
-// 手机版的 importSnapshot 也只接受 vndb / bangumi / bangumi_mirror / ymgal /
-// hikarinagi / nextmoe 这六个值。
+// 手机版的 importSnapshot 也只接受 vndb / bangumi / ymgal / hikarinagi / nextmoe
+// 这五个值。
+//
+// 已下线的 `bangumi_mirror` 先折叠成 bangumi 再判定（与手机版 SyncManager
+// 落盘前的那次折叠一致），这样老快照不会因为「值已下线」而被整条忽略。
 //
 // 单独抽成纯函数是为了能直接单测：真正的落库路径会写 appconf.json。
 func resolveImportedMetadataSource(current enums.SourceType, incoming string) (enums.SourceType, bool) {
-	trimmed := strings.TrimSpace(incoming)
+	trimmed := appconf.NormalizeLegacyMetadataSource(incoming)
 	if trimmed == "" || !appconf.IsSelectableMetadataSource(trimmed) {
 		return current, false
 	}
-	normalized := enums.SourceType(strings.ToLower(trimmed))
+	normalized := enums.SourceType(trimmed)
 	if normalized == current {
 		return current, false
 	}
