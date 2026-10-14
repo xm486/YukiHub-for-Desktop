@@ -174,7 +174,7 @@ func TestYukiHubImportKeepsMobileContractFields(t *testing.T) {
 				PlayStatus:      "playing",
 				PlaytimeResetAt: resetAt.UnixMilli(),
 				// favorite 由系统收藏分类承载，不落库；这里只是确认它不会串到 hidden 上。
-				Hidden:    true,
+				Hidden:    boolPtr(true),
 				Favorite:  true,
 				CreatedAt: createdAt.UnixMilli(),
 				UpdatedAt: createdAt.Add(time.Hour).UnixMilli(),
@@ -214,6 +214,10 @@ func TestYukiHubImportKeepsMobileContractFields(t *testing.T) {
 	if !resetGame.Hidden {
 		t.Error("Hidden flag was not imported")
 	}
+	// 三态：明确带了键 → 必须原样带下去（合并导入靠它区分「明确表态」与「没信息」）。
+	if captured[0].Hidden == nil || !*captured[0].Hidden {
+		t.Errorf("ImportItem.Hidden = %v, want 明确的 true", captured[0].Hidden)
+	}
 	if resetGame.SourceDeviceID != "" {
 		t.Errorf("SourceDeviceID = %q, want empty (Android backup has no device id)", resetGame.SourceDeviceID)
 	}
@@ -228,6 +232,15 @@ func TestYukiHubImportKeepsMobileContractFields(t *testing.T) {
 	if plainGame.Hidden {
 		t.Error("Hidden must stay false when the backup does not set it")
 	}
+	// 但「没带键」在合并更新路径上必须是 nil（= 保留本地），不能是 false。
+	if captured[1].Hidden != nil {
+		t.Errorf("快照没带 hidden 时 ImportItem.Hidden 应为 nil，实际 %v", *captured[1].Hidden)
+	}
+}
+
+// boolPtr 供测试构造三态布尔。
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func TestYukiHubLocalIDOnlyEncodesPositiveIDs(t *testing.T) {

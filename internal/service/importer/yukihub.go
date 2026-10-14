@@ -211,6 +211,10 @@ func (y *YukiHubImporter) ImportSelected(backupPath string, skipNoPath bool, sam
 			ExistingGameID: existingGameID,
 			// 收藏在桌面端由「收藏」系统分类承载，models.Game 里没有对应列。
 			Favorite: sourceGame.Favorite,
+			// hidden 必须原样带指针下去（nil = 快照没带这个键）。
+			// 塞进 models.Game 就只剩 bool，缺键会被当成「明确不隐藏」，
+			// 合并导入时把本地藏好的游戏翻出来。
+			Hidden: sourceGame.Hidden,
 		})
 		if action == ImportActionCreate {
 			updateExistingIndexes(existingNames, existingPaths, game, gameName, "")
@@ -437,7 +441,9 @@ func convertYukiHubGame(
 		// Android 备份的 profile 里没有可用的设备标识，保持空值，不编造来源设备。
 		SourceDeviceID:  "",
 		PlaytimeResetAt: playtimeResetAt,
-		Hidden:          source.Hidden,
+		// 新建条目用不到三态：没带键就是「不隐藏」。合并更新走 ImportItem.Hidden
+		// 那条三态通路，缺键时保留本地值。
+		Hidden: source.Hidden != nil && *source.Hidden,
 	}
 
 	tags := parseYukiHubTags(source.Tags)

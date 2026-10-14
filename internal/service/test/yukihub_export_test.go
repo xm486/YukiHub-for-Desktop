@@ -117,7 +117,9 @@ func TestYukiHubExporterBuildMapsDesktopLibrary(t *testing.T) {
 	if resetGame.CoverUri != "" {
 		t.Errorf("cover_uri = %q, want empty for a local cover", resetGame.CoverUri)
 	}
-	if !resetGame.Hidden || !resetGame.NSFW || resetGame.PlayStatus != "playing" {
+	// Hidden 是三态指针：导出侧必须**写了**这个键（非 nil），
+	// 省略键会被手机版当成「对端没说」而保留它的旧值。
+	if resetGame.Hidden == nil || !*resetGame.Hidden || !resetGame.NSFW || resetGame.PlayStatus != "playing" {
 		t.Errorf("hidden/nsfw/play_status = %v/%v/%q", resetGame.Hidden, resetGame.NSFW, resetGame.PlayStatus)
 	}
 

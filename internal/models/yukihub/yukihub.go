@@ -73,9 +73,19 @@ type Game struct {
 	PlaytimeResetAt   int64  `json:"playtime_reset_at"` // 清零时间点（Unix 毫秒），0 表示从未清零
 	CreatedAt         int64  `json:"created_at"`
 	UpdatedAt         int64  `json:"updated_at"`
-	Hidden            bool   `json:"hidden"`
-	Favorite          bool   `json:"favorite"`
-	NSFW              bool   `json:"nsfw"`
+	// Hidden 必须是 *bool + omitempty，**不能**是 bool。
+	//
+	// 手机版导入这条字段是 `g.hidden = o.optBoolean("hidden", g.hidden)`：
+	// **键缺失 = 保留对端原值**，只有明确写了 true / false 才算表态。
+	// 用 bool 的话，缺键会被解码成 false，而合并导入会把 false 当成「明确不隐藏」
+	// 直接写回 —— 一次同步就把对端藏好的游戏全部翻出来（老快照 / 只带 games 段
+	// 的快照都不带这个键，正是高发场景）。
+	//
+	// 导出侧恒写这个键（指针始终非 nil）：false 也必须发出去，
+	// 否则对端无法得知「这边把它取消隐藏了」。
+	Hidden   *bool `json:"hidden,omitempty"`
+	Favorite bool  `json:"favorite"`
+	NSFW     bool  `json:"nsfw"`
 }
 
 type PlaySession struct {

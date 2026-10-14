@@ -70,7 +70,7 @@ func buildYukiHubScaleSnapshot(t *testing.T) yukiHubScaleExpectation {
 			Tags:          "剧情,校园",
 			PlayStatus:    statuses[i%len(statuses)],
 			TotalPlayTime: int64(sessionCount)*60_000 + bonusMillis,
-			Hidden:        i%7 == 0,
+			Hidden:        boolPtr(i%7 == 0),
 			NSFW:          i%11 == 0,
 			CreatedAt:     base.UnixMilli(),
 			UpdatedAt:     base.Add(time.Hour).UnixMilli(),
@@ -79,7 +79,7 @@ func buildYukiHubScaleSnapshot(t *testing.T) yukiHubScaleExpectation {
 			game.PlaytimeResetAt = resetAt.UnixMilli()
 			expectation.playtimeReset++
 		}
-		if game.Hidden {
+		if game.Hidden != nil && *game.Hidden {
 			expectation.hidden++
 		}
 		if game.NSFW {
@@ -278,7 +278,7 @@ func TestYukiHubImportPersistsMobileContractFields(t *testing.T) {
 				Title:           "契约字段游戏",
 				PlayStatus:      "playing",
 				PlaytimeResetAt: resetAt.UnixMilli(),
-				Hidden:          true,
+				Hidden:          boolPtr(true),
 				CreatedAt:       base.UnixMilli(),
 				UpdatedAt:       base.Add(time.Hour).UnixMilli(),
 			},

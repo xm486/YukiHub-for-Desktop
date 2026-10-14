@@ -480,11 +480,19 @@ func buildYukiHubGame(game models.Game, tags []string, sessions []models.PlaySes
 		PlaytimeResetAt: unixMilli(resetAt),
 		CreatedAt:       unixMilli(game.CreatedAt),
 		UpdatedAt:       unixMilli(game.UpdatedAt),
-		Hidden:          game.Hidden,
+		Hidden:          yukiHubBoolPtr(game.Hidden),
 		Favorite:        favorite,
 		NSFW:            game.IsNSFW,
 	}
 	return entry, buildYukiHubSessions(entry, game, kept)
+}
+
+// yukiHubBoolPtr 恒返回非 nil 指针：快照里这些布尔键必须**总是出现**。
+//
+// 手机版读的是 `optBoolean(k, 本地值)` —— 键缺失等于「对端没说」，会保留自己的值。
+// 所以「取消隐藏」这类状态变化只有把 false 明确发出去才能生效；省略键等于没同步。
+func yukiHubBoolPtr(value bool) *bool {
+	return &value
 }
 
 func buildYukiHubSessions(entry yukihub.Game, game models.Game, sessions []models.PlaySession) []yukihub.PlaySession {

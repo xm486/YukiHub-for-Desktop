@@ -76,7 +76,9 @@ type CommitItem struct {
 	Action                  string
 	UpdateLocalLaunchFields bool
 	Favorite                bool
-	CoverLoader             func(models.Game) (string, error)
+	// Hidden 三态，语义见 ImportItem.Hidden：nil = 快照没带键（保留本地）。
+	Hidden      *bool
+	CoverLoader func(models.Game) (string, error)
 }
 
 type CoverDownloadItem struct {
@@ -121,6 +123,19 @@ func normalizeImportName(name string) string {
 
 // nullableTime 把可空的清零时间转成 appender 可写入的值：nil 落 NULL，而不是零值时间。
 func nullableTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+// nullableBool 用于 hidden 这类三态布尔：NULL = 快照**没带这个键**（更新路径保留本地值），
+// TRUE / FALSE = 对端明确表态。
+//
+// 为什么不能用 bool：手机版读的是 `optBoolean("hidden", 本地值)`，
+// 键缺失必须保留；写成 bool 就把「没信息」和「明确 false（取消隐藏）」混成一个值，
+// 一次合并导入就能把本地藏好的游戏全部翻出来。
+func nullableBool(value *bool) any {
 	if value == nil {
 		return nil
 	}
@@ -384,6 +399,7 @@ func (c *Committer) AddItems(items []ImportItem) (ImportResult, error) {
 			Action:                  action,
 			UpdateLocalLaunchFields: item.UpdateLocalLaunchFields,
 			Favorite:                item.Favorite,
+			Hidden:                  item.Hidden,
 			CoverLoader:             item.CoverLoader,
 		}
 		toCommit = append(toCommit, converted)
@@ -657,7 +673,9 @@ func (c *Committer) addImportedItems(ctx context.Context, conn *sql.Conn, items 
 				game.LegacyLocalID,
 				game.SourceDeviceID,
 				nullableTime(game.PlaytimeResetAt),
-				game.Hidden,
+				// hidden 三态：快照没带这个键就写 NULL，插入路径用
+				// COALESCE(hidden, FALSE) 兜成「不隐藏」。
+				nullableBool(items[i].Hidden),
 			); err != nil {
 				return fmt.Errorf("append imported game %s: %w", game.Name, err)
 			}
@@ -681,7 +699,9 @@ func (c *Committer) addImportedItems(ctx context.Context, conn *sql.Conn, items 
 		steam_launch_id, steam_launch_kind, steam_user_id, steam_launch_options,
 		source_type, cached_at, source_id, created_at, updated_at,
 		use_locale_emulator, use_magpie, is_nsfw,
-		legacy_local_id, source_device_id, playtime_reset_at, hidden
+		legacy_local_id, source_device_id, playtime_reset_at,
+		-- 新建条目没有「保留本地值」可言，没带键就是「不隐藏」
+		COALESCE(hidden, FALSE)
 	FROM temp_import_games`); err != nil {
 		return 0, fmt.Errorf("insert imported games from staging: %w", err)
 	}
@@ -786,7 +806,8 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 				game.LegacyLocalID,
 				game.SourceDeviceID,
 				nullableTime(game.PlaytimeResetAt),
-				game.Hidden,
+				// 更新路径必须保留「没带键」这个信息：NULL = 不覆盖本地值。
+				nullableBool(items[i].Hidden),
 			); err != nil {
 				return fmt.Errorf("append import metadata update %s: %w", game.Name, err)
 			}
@@ -913,9 +934,15 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 				WHEN temp_update_import_games.source_device_id <> '' THEN temp_update_import_games.source_device_id
 				ELSE games.source_device_id
 			END,
-			-- 清零时间与隐藏标记以权威源（Android）为准。
+			-- 清零时间以权威源（Android）为准。
 			playtime_reset_at = %s,
-			hidden = temp_update_import_games.hidden
+			-- 隐藏标记：**对端明确带了键才覆盖**（手机版 optBoolean("hidden", 本地值)）。
+			-- 快照缺这个键时暂存表里是 NULL → 保留本地，否则一次同步会把
+			-- 本地藏好的游戏全部翻出来（老快照与只带 games 段的快照都不带这个键）。
+			hidden = CASE
+				WHEN temp_update_import_games.hidden IS NULL THEN games.hidden
+				ELSE temp_update_import_games.hidden
+			END
 		FROM temp_update_import_games
 		WHERE games.id = temp_update_import_games.id
 	`,

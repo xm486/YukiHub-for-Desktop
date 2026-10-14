@@ -57,7 +57,15 @@ type ImportItem struct {
 	UpdateLocalLaunchFields bool
 	// Favorite 为真时把游戏加入「收藏」系统分类。桌面端没有游戏级收藏列，
 	// 收藏由 game_categories 承载，因此不能塞进 models.Game。
-	Favorite    bool
+	Favorite bool
+	// Hidden 是三态：nil = 快照**没带**这个键（保留本地原值），
+	// 非 nil = 对端明确表态（true 隐藏 / false 取消隐藏）。
+	//
+	// 与 Favorite 同理，不能塞进 models.Game —— 那里的 bool 表达不了「没信息」，
+	// 而手机版是 `optBoolean("hidden", 本地值)`：缺键必须保留，
+	// 否则一次合并导入就把本地藏好的游戏全部翻出来。
+	// 其它导入格式（PotatoVN / Playnite / VNite …）没有隐藏概念，恒为 nil。
+	Hidden      *bool
 	CoverLoader func(models.Game) (string, error)
 }
 

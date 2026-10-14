@@ -265,8 +265,50 @@ func TestBuildYukiHubGameWithoutSessions(t *testing.T) {
 	if entry.CoverUri != "" {
 		t.Errorf("cover_uri = %q, want empty for a local cover", entry.CoverUri)
 	}
-	if entry.PlayStatus != "unplayed" || !entry.Hidden || !entry.NSFW {
+	// Hidden 是 *bool：断言时必须先判非 nil —— 导出侧永远要写出这个键，
+	// 缺键会被手机版当成「对端没说」，取消隐藏就同步不过去了。
+	if entry.PlayStatus != "unplayed" || entry.Hidden == nil || !*entry.Hidden || !entry.NSFW {
 		t.Errorf("play_status/hidden/nsfw = %q/%v/%v", entry.PlayStatus, entry.Hidden, entry.NSFW)
+	}
+}
+
+// 未隐藏的游戏同样要**写出** hidden=false（手机版 optBoolean 缺键=保留原值，
+// 省略这个键会让「在桌面端取消隐藏」永远同步不过去）。
+func TestExportAlwaysWritesHiddenKey(t *testing.T) {
+	t.Parallel()
+
+	raw, err := json.Marshal(yukihub.Game{LocalID: 1, Title: "可见的游戏"})
+	if err != nil {
+		t.Fatalf("marshal snapshot game: %v", err)
+	}
+	if strings.Contains(string(raw), `"hidden"`) {
+		t.Fatalf("零值 Game 的 Hidden 为 nil 时不该出现该键 —— 但真实导出必须显式赋值：%s", raw)
+	}
+
+	entry, _ := buildYukiHubGame(models.Game{ID: "g-1", Name: "可见的游戏"}, nil, nil, false)
+	if entry.Hidden == nil {
+		t.Fatal("导出必须给 Hidden 赋指针，否则 json 里不会出现这个键，对端无从得知「已取消隐藏」")
+	}
+	if *entry.Hidden {
+		t.Fatalf("未隐藏的游戏应导出 hidden=false，实际 true")
+	}
+
+	// 走一遍真正的 JSON 序列化：确认 omitempty 没有把显式的 false 吃掉。
+	// 这一层才是手机版实际看到的东西 —— 只断言结构体字段非 nil 不足以证明键真的写出来了。
+	raw, err = json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal exported entry: %v", err)
+	}
+	if !strings.Contains(string(raw), `"hidden":false`) {
+		t.Fatalf("导出的 JSON 必须显式带 hidden=false，实际 %s", raw)
+	}
+
+	var roundTripped yukihub.Game
+	if err := json.Unmarshal(raw, &roundTripped); err != nil {
+		t.Fatalf("unmarshal exported entry: %v", err)
+	}
+	if roundTripped.Hidden == nil || *roundTripped.Hidden {
+		t.Fatalf("往返后 hidden 应为明确的 false，实际 %v", roundTripped.Hidden)
 	}
 }
 

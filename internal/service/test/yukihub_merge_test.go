@@ -240,13 +240,17 @@ func TestYukiHubSyncMergeAppliesNewerFieldsOnly(t *testing.T) {
 		INSERT INTO games (id, name, summary, company, status, source_type, source_id, is_nsfw, hidden, path, created_at, updated_at)
 		VALUES
 			(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?),
+			(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?),
 			(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		// 对端更新：状态/隐藏应被采纳，空的文本字段不得抹掉桌面端资料
 		"sync-1", "同步目标", "桌面端简介", "桌面端会社", "unplayed", "vndb", "v9999", false, false,
 		"D:/Games/sync/game.exe", createdAt, createdAt,
 		// 本地更晚更新过：对端是旧快照，状态应保留本地值
 		"sync-2", "本地更新过", "桌面端简介", "", "dropped", "local", "", false, false,
-		"D:/Games/sync/game2.exe", createdAt, localNewerAt); err != nil {
+		"D:/Games/sync/game2.exe", createdAt, localNewerAt,
+		// 本地已隐藏，且快照**没带** hidden 键（老快照 / 只带 games 段的轻量快照）
+		"sync-3", "本地已隐藏", "桌面端简介", "", "unplayed", "local", "", false, true,
+		"D:/Games/sync/game3.exe", createdAt, createdAt); err != nil {
 		t.Fatalf("插入已有游戏失败: %v", err)
 	}
 
@@ -263,7 +267,7 @@ func TestYukiHubSyncMergeAppliesNewerFieldsOnly(t *testing.T) {
 				Tags:          "",
 				OriginalTitle: "",
 				PlayStatus:    "completed",
-				Hidden:        true,
+				Hidden:        boolPtr(true),
 				TotalPlayTime: 90_000,
 				CreatedAt:     createdAt.UnixMilli(),
 				UpdatedAt:     createdAt.Add(time.Hour).UnixMilli(),
@@ -276,6 +280,16 @@ func TestYukiHubSyncMergeAppliesNewerFieldsOnly(t *testing.T) {
 				CreatedAt:     createdAt.UnixMilli(),
 				UpdatedAt:     createdAt.UnixMilli(),
 			},
+			{
+				LocalID:       3,
+				Title:         "本地已隐藏",
+				PlayStatus:    "unplayed",
+				TotalPlayTime: 0,
+				// Hidden 保持 nil → JSON 里不会出现这个键，模拟老快照 / 轻量快照。
+				// 手机版是 optBoolean("hidden", 本地值)：缺键必须保留本地隐藏状态。
+				CreatedAt: createdAt.UnixMilli(),
+				UpdatedAt: createdAt.UnixMilli(),
+			},
 		},
 	}
 	snapshotPath := writeSnapshotFile(t, t.TempDir(), backup)
@@ -285,8 +299,8 @@ func TestYukiHubSyncMergeAppliesNewerFieldsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("同步合并导入失败: %v", err)
 	}
-	if result.Success != 2 {
-		t.Fatalf("同步合并结果 = success %d / skipped %d (%v), want 2/0",
+	if result.Success != 3 {
+		t.Fatalf("同步合并结果 = success %d / skipped %d (%v), want 3/0",
 			result.Success, result.Skipped, result.SkippedNames)
 	}
 
@@ -323,6 +337,17 @@ func TestYukiHubSyncMergeAppliesNewerFieldsOnly(t *testing.T) {
 	}
 	if status != "dropped" {
 		t.Errorf("status = %q, want dropped（本地更新更晚时不得被旧快照覆盖）", status)
+	}
+
+	// 快照没带 hidden 键 → 本地已隐藏的状态必须保住。
+	// 这是「同步一次就把藏好的游戏全翻出来」的直接回归点：
+	// 用 bool 承载时缺键会解码成 false，被当成「明确不隐藏」写回。
+	if err := targetDB.QueryRow(
+		`SELECT COALESCE(hidden, FALSE) FROM games WHERE id = 'sync-3'`).Scan(&hidden); err != nil {
+		t.Fatalf("查询 sync-3 失败: %v", err)
+	}
+	if !hidden {
+		t.Error("快照缺 hidden 键时不得改动本地隐藏状态（否则一次同步就把藏好的游戏全翻出来）")
 	}
 
 	// 会话仍然并集去重 + 聚合补偿（total_play_time 90s → 一条聚合会话）。

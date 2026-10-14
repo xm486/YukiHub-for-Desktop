@@ -46,6 +46,22 @@
 `gamehub_launch_mode`、`play_status`、`total_play_time`、`last_played_at`、
 `playtime_reset_at`、`created_at`、`updated_at`、`hidden`、`favorite`、`nsfw`
 
+其中 `hidden` 是**三态**，不能当普通布尔处理。手机版读的是
+`g.hidden = o.optBoolean("hidden", g.hidden)` —— 键缺失表示「对端没说」，
+必须**保留本地值**；只有明确写了 `true` / `false` 才算表态。所以：
+
+- 桌面端用 `*bool` 承载（`yukihub.Game.Hidden`），导出侧**恒写**这个键
+  （`false` 也必须写出去，否则「在桌面端取消隐藏」同步不过去 —— 省略键 = 没同步）；
+- 导入侧缺键时往暂存表写 SQL `NULL`，合并语句用
+  `CASE WHEN ... IS NULL THEN games.hidden ELSE ... END` 保留本地值；
+- `ImportItem.Hidden` / `CommitItem.Hidden` 同为三态指针，其它导入格式
+  （PotatoVN / Playnite / VNite / LunaBox …）没有隐藏概念，恒为 `nil`，不会改动本地值。
+
+写成普通 `bool` 的后果是：老快照、以及只带 `games` 段的快照都不带这个键，
+缺键被解码成 `false`、又被当成「明确不隐藏」写回，**一次同步就把对端藏好的游戏全部翻出来**。
+回归测试：`TestSyncMergeAppliesHiddenOnlyWhenSnapshotCarriesTheKey`
+（`internal/service/importer/persistence_hidden_test.go`）。
+
 ### play_sessions 元素
 
 `session_uuid`、`game_local_id`、`game_root_uri`、`gamehub_local_game_id`、`game_title`、
@@ -180,6 +196,7 @@ Android 侧的 `root_uri` 可能是 `content://` 形式（SAF 树 URI），需�
 | 游玩记录 | 以 `session_uuid` 为幂等键，重复导入不产生重复会话 |
 | 时长重算 | 只增不减（重置清零除外） |
 | 清零语义 | `playtime_reset_at` 之前的历史会话不计入统计，但记录本身保留 |
+| 隐藏标记 | 快照**带了** `hidden` 才覆盖（`true` / `false` 都算明确表态）；**缺键 = 保留本地**。手机版是 `optBoolean("hidden", 本地值)`，详见 §二 games 元素 |
 | 冲突方向 | 由同一套算法裁决，不允许两端各有一份实现 |
 
 ### 现状核对（2026-09-28，导入侧合并已落地后更新）
