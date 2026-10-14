@@ -33,6 +33,11 @@ on:
         required: false
         type: boolean
         default: true
+      gitcode_parallel:
+        description: '同步到 GitCode 时并发几条上传连接。实测调大反而更糟：8 条长连接一起挂着时网关会随机回 502，且单条连接速度掉到 5-20 KB/s；并发降下来后单条能跑到 20 KB/s 以上。默认 2，可试 1 或 4'
+        required: false
+        type: number
+        default: 2
       gitcode_mirror:
         description: '同步到 GitCode 的产物范围。注意：构建在境外运行器上、GitCode 对象存储在国内，这条跨境链路实测单连接只有十几 KB/s，全量 250 MB 要很久（多路并发能叠加，但别指望快）。只想让 GitCode 用户拿到最常用的那个包就选「仅 Windows amd64」'
         required: false
@@ -778,7 +783,8 @@ jobs:
           TARGET_COMMITISH: ${{ github.sha }}
           FILES_DIR: release
           GITCODE_INCLUDE: ${{ needs.version.outputs.gitcode-include }}
-          PARALLEL: '8'
+          PARALLEL: ${{ inputs.gitcode_parallel }}
           UPLOAD_MAX_TIME: '10800'
           UPLOAD_DEADLINE: '18000'
+          UPLOAD_RETRY: '30'
         run: bash scripts/publish-gitcode-release.sh

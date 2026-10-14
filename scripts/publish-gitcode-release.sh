@@ -54,13 +54,17 @@
 #   GITCODE_API_BASE    可选，默认 https://api.gitcode.com/api/v5
 #   PYTHON_BIN          可选，默认 python3
 #   GITCODE_INCLUDE     可选，只上传文件名含这些子串的文件（空格分隔），默认全部
-#   PARALLEL            可选，并发上传路数，1 = 串行，默认 4
+#   PARALLEL            可选，并发上传路数，默认 2。**别调大**：实测 8 条长连接
+#                       一起挂着时网关会随机回 502（Bad Gateway），且单条连接速度
+#                       掉到 5-20 KB/s；并发降下来后单条能跑到 20 KB/s 以上
 #   UPLOAD_MAX_TIME     可选，单个文件单次尝试的最长秒数，默认 10800（3 小时）
 #   UPLOAD_DEADLINE     可选，整个上传阶段的总预算秒数，默认 18000（5 小时）。
 #                       **上限来自 GitHub**：托管运行器的单个作业最长 6 小时，
 #                       且文档明确「不能提额」，所以这里最多给到 5 小时，
 #                       留出前面若干步骤（拉代码/下载制品/建 Release）的余量
-#   UPLOAD_RETRY        可选，单个文件失败后重试次数，默认 1（第二次换协议栈试）
+#   UPLOAD_RETRY        可选，单个文件最多尝试几次，默认 30（真正的时间约束是
+#                       UPLOAD_DEADLINE，这个数字只是防呆上限）。网关会随机 502，
+#                       只能靠多试几次撞上能跑完的窗口
 #   API_MAX_TIME        可选，单次 API 调用的最长秒数，默认 120
 #   UPLOAD_SPEED_LIMIT  可选，低于这个速率（字节/秒）视为停滞，**默认 0＝关闭**。
 #                        预签名 PUT 不能断点续传，中途掐掉等于把已发出的字节全扔了；
@@ -93,10 +97,10 @@ RELEASE_STATUS="${RELEASE_STATUS:-latest}"
 TARGET_COMMITISH="${TARGET_COMMITISH:-}"
 FILES_DIR="${FILES_DIR:-release}"
 GITCODE_INCLUDE="${GITCODE_INCLUDE:-}"
-PARALLEL="${PARALLEL:-4}"
+PARALLEL="${PARALLEL:-2}"
 UPLOAD_MAX_TIME="${UPLOAD_MAX_TIME:-10800}"
 UPLOAD_DEADLINE="${UPLOAD_DEADLINE:-18000}"
-UPLOAD_RETRY="${UPLOAD_RETRY:-1}"
+UPLOAD_RETRY="${UPLOAD_RETRY:-30}"
 API_MAX_TIME="${API_MAX_TIME:-120}"
 UPLOAD_SPEED_LIMIT="${UPLOAD_SPEED_LIMIT:-0}"
 UPLOAD_SPEED_TIME="${UPLOAD_SPEED_TIME:-60}"
@@ -380,6 +384,20 @@ info "待上传 $FILE_COUNT 个文件，合计 $(human_size "$total_bytes")"
 info "并发 $PARALLEL 路，单文件单次上限 ${UPLOAD_MAX_TIME}s，整体预算 ${UPLOAD_DEADLINE}s"
 [ "$skipped" -gt 0 ] && info "另有 $skipped 个同名附件已跳过（$(human_size "$skipped_bytes")）"
 
+# 重试之间退避：网关刚 502 过，立刻再撞上去多半还是 502，还会把仅有的
+# 带宽与尝试次数烧光。10s / 20s / 30s …… 封顶 120s；剩余预算不够就不再等，
+# 把时间留给正式尝试。
+retry_pause() { # 已失败次数 log idx
+  local n="$1" log="$2" idx="$3"
+  local delay=$(( n * 10 ))
+  [ "$delay" -gt 120 ] && delay=120
+  local left=$(( DEADLINE_AT - $(now_epoch) ))
+  if [ "$left" -gt $(( delay + 60 )) ]; then
+    echo "[$idx/$FILE_COUNT] 网关刚拒绝过，等 ${delay}s 再试" >> "$log"
+    sleep "$delay"
+  fi
+}
+
 # 单个文件的上传过程写在自己的日志/结果文件里：并行跑的时候不能让多个 curl
 # 往同一个 stdout 里挤，否则日志会交错成一团。
 upload_one() { # idx path
@@ -395,12 +413,15 @@ upload_one() { # idx path
   local attempt=1
   local max_attempts=$((UPLOAD_RETRY + 1))
   local last_detail=""
+  # 累计「实际发出去多少」：断点续传做不到，每次失败都得从 0 重来，
+  # 所以这个数会明显大于文件本身 —— 但它能说明「是不是一直在白传」。
+  local sent_total=0
 
   while [ "$attempt" -le "$max_attempts" ]; do
     local remaining=$((DEADLINE_AT - $(now_epoch)))
     if [ "$remaining" -le 30 ]; then
       echo "[$idx/$FILE_COUNT] 放弃 $base：整体预算已用尽" >> "$log"
-      echo "timeout|$base|0|0|0|整体预算已用尽" > "$res"
+      echo "timeout|$base|0|0|0|$((attempt - 1))|$sent_total|整体预算已用尽" > "$res"
       return 0
     fi
 
@@ -419,7 +440,7 @@ upload_one() { # idx path
         last_detail="取上传地址失败：HTTP $url_status $(resp_body "$workdir/upload.$idx.json")"
         echo "[$idx/$FILE_COUNT] 第 $attempt 次：$last_detail" >> "$log"
         attempt=$((attempt + 1))
-        sleep 5
+        retry_pause "$attempt" "$log" "$idx"
         continue
         ;;
     esac
@@ -431,7 +452,7 @@ upload_one() { # idx path
       last_detail="上传地址为空：$(resp_body "$workdir/upload.$idx.json")"
       echo "[$idx/$FILE_COUNT] 第 $attempt 次：$last_detail" >> "$log"
       attempt=$((attempt + 1))
-      sleep 5
+      retry_pause "$attempt" "$log" "$idx"
       continue
     fi
 
@@ -482,21 +503,23 @@ upload_one() { # idx path
 
     case "$put_status" in
       2*)
-        echo "[$idx/$FILE_COUNT] 已上传 $base：耗时 $(fmt2 "$put_time")s，均速 $(human_speed "${put_speed:-0}")" >> "$log"
-        echo "ok|$base|$put_time|$put_size|$put_speed|" > "$res"
+        sent_total=$((sent_total + ${put_size:-0}))
+        echo "[$idx/$FILE_COUNT] 已上传 $base：第 $attempt 次成功，耗时 $(fmt2 "$put_time")s，均速 $(human_speed "${put_speed:-0}")" >> "$log"
+        echo "ok|$base|$put_time|$put_size|$put_speed|$attempt|$sent_total|" > "$res"
         return 0
         ;;
       *)
+        sent_total=$((sent_total + ${put_size:-0}))
         last_detail="HTTP ${put_status:-无响应}，已发出 $(human_size "${put_size:-0}") / $(human_size "$size")（均速 $(human_speed "${put_speed:-0}")），耗时 $(fmt2 "$put_time")s $(resp_body "$workdir/put_resp.$idx.bin")"
         echo "[$idx/$FILE_COUNT] 第 $attempt 次失败：$last_detail" >> "$log"
         attempt=$((attempt + 1))
-        sleep 5
+        retry_pause "$attempt" "$log" "$idx"
         ;;
     esac
   done
 
   echo "[$idx/$FILE_COUNT] ✗ 放弃 $base：$last_detail" >> "$log"
-  echo "fail|$base|0|0|0|$last_detail" > "$res"
+  echo "fail|$base|0|0|0|$((attempt - 1))|$sent_total|$last_detail" > "$res"
   return 0
 }
 
@@ -531,12 +554,16 @@ uploaded=0
 failed=0
 timed_out=0
 moved_bytes=0
+sent_bytes=0
+attempts_total=0
 index=0
 for path in "${file_list[@]}"; do
   index=$((index + 1))
   [ -f "$workdir/log.$index" ] && cat "$workdir/log.$index"
   if [ -f "$workdir/res.$index" ]; then
-    IFS='|' read -r kind name seconds size speed detail < "$workdir/res.$index"
+    IFS='|' read -r kind name seconds size speed attempts sent detail < "$workdir/res.$index"
+    attempts_total=$((attempts_total + ${attempts:-0}))
+    sent_bytes=$((sent_bytes + ${sent:-0}))
     case "$kind" in
       ok)
         uploaded=$((uploaded + 1))
@@ -556,7 +583,7 @@ done
 
 elapsed=$(( $(now_epoch) - UPLOAD_STARTED_AT ))
 if [ "$elapsed" -gt 0 ]; then
-  info "上传阶段耗时 ${elapsed}s，实际发出 $(human_size "$moved_bytes")，平均 $(human_speed $((moved_bytes / elapsed)))"
+  info "上传阶段耗时 ${elapsed}s，共尝试 ${attempts_total} 次，实际发出 $(human_size "$sent_bytes")，其中落到 GitCode 的 $(human_size "$moved_bytes")"
 fi
 
 # 失败语义（按仓库维护者的要求）：
