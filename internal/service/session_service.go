@@ -22,9 +22,16 @@ type SessionService struct {
 	// playingChangeHook 在「未结束会话」集合发生变化（开始 / 结束游玩）时被调用。
 	//
 	// 由 AccountService 注入：它据此**立即**补发一次在线状态心跳。手机版
-	// `PresenceManager.updateActivity()` 就是「更新 activity 后立刻发一次心跳」，
-	// 桌面端原来只在 45 秒的周期心跳里带上 activity，好友最长要等一个完整周期
-	// 才看到「正在玩」（实测反馈「延迟几十秒」就是这么来的）。
+	// `PresenceManager.updateActivity()` / `clearPlayingGame()` 都是「改完立刻发一次
+	// 心跳」，桌面端原来只在 45 秒的周期心跳里带上 activity，好友最长要等一个完整
+	// 周期才看到「正在玩」（实测反馈「延迟几十秒」就是这么来的）。
+	//
+	// 「未结束会话」集合的写入点共四处，都必须通知（少一处就是「一边快一边慢」）：
+	//   - CreatePendingSession          —— 开始游玩
+	//   - UpdatePlaySession             —— 结束游玩（finalizePlaySessionOnce 走这里）
+	//   - DeletePlaySession             —— 短会话 / 启动被取消，直接删行
+	//   - completeUnfinishedSession     —— 退出时的未完成会话清理
+	// 后两者只在该会话原本「未结束」时才通知，避免改历史记录也发心跳。
 	playingHookMu     sync.Mutex
 	playingChangeHook func()
 }
@@ -219,6 +226,11 @@ func (s *SessionService) GetPlaySessions(gameID string) ([]models.PlaySession, e
 
 // DeletePlaySession 删除指定的游玩记录
 func (s *SessionService) DeletePlaySession(sessionID string) error {
+	// 「正在玩」的判据是「存在 end_time IS NULL 的会话」（见 resolvePlayingActivity），
+	// 所以只有删掉一条**未结束**的会话才算改变了「正在玩」—— 用户在前端
+	// 统计面板里删一条历史记录不该往服务端发心跳。先记下删除前的状态。
+	wasUnfinished := s.isSessionUnfinished(s.ctx, sessionID)
+
 	result, err := s.db.ExecContext(s.ctx, "DELETE FROM play_sessions WHERE id = ?", sessionID)
 	if err != nil {
 		applog.LogErrorf(s.ctx, "DeletePlaySession: failed to delete play session: %v", err)
@@ -238,11 +250,21 @@ func (s *SessionService) DeletePlaySession(sessionID string) error {
 	}
 
 	applog.LogInfof(s.ctx, "DeletePlaySession: deleted play session %s", sessionID)
+
+	// 删掉的是「未结束会话」⇒ 可能不再在玩（短会话退出 / 启动被取消走这条），
+	// 立刻补发一次心跳，别让好友等到下一个 45 秒周期。
+	if wasUnfinished {
+		s.notifyPlayingChanged()
+	}
 	return nil
 }
 
 // UpdatePlaySession 更新游玩记录
 func (s *SessionService) UpdatePlaySession(session models.PlaySession) error {
+	// 同上：只有原本「未结束」的会话被写上 end_time，才算「不再在玩」。
+	// 退出游戏走的正是这条路径（finalizePlaySessionOnce → UpdatePlaySession）。
+	wasUnfinished := s.isSessionUnfinished(s.ctx, session.ID)
+
 	// 重新计算结束时间
 	endTime := session.StartTime.Add(time.Duration(session.Duration) * time.Second)
 	session.UpdatedAt = time.Now()
@@ -274,7 +296,25 @@ func (s *SessionService) UpdatePlaySession(session models.PlaySession) error {
 	}
 
 	applog.LogInfof(s.ctx, "UpdatePlaySession: updated play session %s", session.ID)
+
+	if wasUnfinished {
+		s.notifyPlayingChanged()
+	}
 	return nil
+}
+
+// isSessionUnfinished 判断指定会话当前是否「未结束」（end_time IS NULL）。
+//
+// 用来回答「这次写操作是否真的改变了『正在玩』」：只有动到未结束会话的写才值得
+// 立即补发心跳，改历史记录不该产生多余的心跳。查不到该行（已被删除 / id 不存在）
+// 一律返回 false。
+func (s *SessionService) isSessionUnfinished(ctx context.Context, sessionID string) bool {
+	var unfinished bool
+	err := s.db.QueryRowContext(ctx, "SELECT end_time IS NULL FROM play_sessions WHERE id = ?", sessionID).Scan(&unfinished)
+	if err != nil {
+		return false
+	}
+	return unfinished
 }
 
 func (s *SessionService) completeUnfinishedSession(ctx context.Context, sessionID string, endTime time.Time, duration int) (bool, error) {

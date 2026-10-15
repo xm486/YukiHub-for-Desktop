@@ -159,13 +159,19 @@
 
 ### 修复（选）
 
-- **启动游戏后好友要等几十秒才看到「正在玩」**。手机版 `PresenceManager.updateActivity()`
-  是「更新 activity 后**立刻**发一次心跳」，桌面端只在 45 秒的周期心跳里带上 activity ——
-  最长要等一整个周期（叠加读侧 15 秒轮询，体感就是几十秒）。现在「未结束会话」集合变化时
-  （开始游玩 / 结束游玩，含短会话被删除）会立即补发一次心跳：`SessionService` 提供回调，
+- **启动游戏后好友要等几十秒才看到「正在玩」**（修完启动后，用户又发现「退出还是慢」）。
+  手机版 `PresenceManager.updateActivity()`（开始，`PresenceManager.java:143`）与
+  `clearPlayingGame()`（结束，`:169`）都是「改完**立刻**发一次心跳」，桌面端只在 45 秒的
+  周期心跳里带上 activity —— 最长要等一整个周期（叠加读侧 15 秒轮询，体感就是几十秒）。
+  现在「未结束会话」集合变化时会立即补发一次心跳：`SessionService` 提供回调，
   `AccountService.PushPresenceNow()` 消费。补发走容量 1 的信号槽（连发多次只留一次待发、
   调用不阻塞，结算路径不会被一次 HTTP 拖住），并且**心跳循环已停时直接丢弃** ——
-  退出路径先停循环再报离线，此时若还补发会把刚报的离线又顶回在线
+  退出路径先停循环再报离线，此时若还补发会把刚报的离线又顶回在线。
+  **「开始」与「结束」必须对称**：桌面端结束游玩不止一条路径 —— `finalizePlaySessionOnce`
+  正常结算走 `UpdatePlaySession`、不足 1 分钟的短会话走 `DeletePlaySession`（进程退出即
+  `finalizePlaySession(session, "process-exited")`）、退出时清理未完成会话走
+  `completeUnfinishedSession`；只接其中一条就会表现为「启动快了、退出还是慢」。
+  并且只有动到 `end_time IS NULL` 的会话才补发，前端统计面板改 / 删历史记录不会产生多余心跳
 - **同步 / 导入会把「已隐藏」的游戏重新翻出来**。手机版那条字段是
   `g.hidden = o.optBoolean("hidden", g.hidden)` —— **键缺失 = 保留对端原值**，
   只有明确写 `true` / `false` 才算表态；桌面端却用 `bool` 承载，缺键被解码成 `false`、
