@@ -672,6 +672,10 @@ func runGUI(
 		// 游玩会话结算后上报账号服务端（游戏经验 + 网页端每日任务时长）。
 		// 游戏库启动与大屏启动是同一条链路，挂在结算处即可两处都算。
 		startService.SetPlaySessionReporter(accountService)
+		// 「正在玩」变化（开始 / 结束游玩）时立即补发一次在线状态心跳。
+		// 对齐手机版 PresenceManager.updateActivity()：更新后**立刻**上报，
+		// 否则好友最长要等一个完整的 45 秒心跳周期才看到「正在玩」。
+		sessionService.SetPlayingChangeHook(accountService.PushPresenceNow)
 		downloadService.SetGameService(gameService)
 		configService.SetDownloadService(downloadService)
 		gameService.SetImageDownloadTaskStarter(downloadService.StartCoverImageDownloadTask)

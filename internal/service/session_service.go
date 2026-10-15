@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 	"yukihub/internal/appconf"
 	"yukihub/internal/applog"
@@ -17,6 +18,41 @@ type SessionService struct {
 	ctx    context.Context
 	db     *sql.DB
 	config *appconf.AppConfig
+
+	// playingChangeHook 在「未结束会话」集合发生变化（开始 / 结束游玩）时被调用。
+	//
+	// 由 AccountService 注入：它据此**立即**补发一次在线状态心跳。手机版
+	// `PresenceManager.updateActivity()` 就是「更新 activity 后立刻发一次心跳」，
+	// 桌面端原来只在 45 秒的周期心跳里带上 activity，好友最长要等一个完整周期
+	// 才看到「正在玩」（实测反馈「延迟几十秒」就是这么来的）。
+	playingHookMu     sync.Mutex
+	playingChangeHook func()
+}
+
+// SetPlayingChangeHook 注册「正在玩」变化的回调；传 nil 可注销。
+//
+// 这是 Go 侧的内部装配接口（由 main.go 接到 AccountService），不是给界面调用的：
+// 参数是函数类型，绑定生成器也不支持。
+//
+//wails:ignore
+func (s *SessionService) SetPlayingChangeHook(hook func()) {
+	s.playingHookMu.Lock()
+	s.playingChangeHook = hook
+	s.playingHookMu.Unlock()
+}
+
+// notifyPlayingChanged 异步触发回调。
+//
+// 异步是必须的：调用点在「开始游戏」与「退出结算」这两条路径上，
+// 而回调里要发一次 HTTP 心跳 —— 绝不能让它拖慢启动游戏或结算。
+func (s *SessionService) notifyPlayingChanged() {
+	s.playingHookMu.Lock()
+	hook := s.playingChangeHook
+	s.playingHookMu.Unlock()
+	if hook == nil {
+		return
+	}
+	go hook()
 }
 
 // 未完成会话清理的超时。清理只跑在退出 / 启动路径上，用的是独立上下文，
@@ -67,6 +103,10 @@ func (s *SessionService) CreatePendingSession(gameID string, startTime time.Time
 		applog.LogErrorf(s.ctx, "CreatePendingSession: failed to create session: %v", err)
 		return "", fmt.Errorf("创建游玩会话失败: %w", err)
 	}
+
+	// 「正在玩」的来源就是这条未结束会话（见 AccountService.resolvePlayingActivity），
+	// 所以插入成功后要立刻通知一次，别让好友等到下一个 45 秒心跳。
+	s.notifyPlayingChanged()
 
 	return sessionID, nil
 }
@@ -246,6 +286,8 @@ func (s *SessionService) completeUnfinishedSession(ctx context.Context, sessionI
 		if err := cloudsync.UpsertTombstone(ctx, s.db, cloudsync.EntityPlaySession, sessionID, endTime); err != nil {
 			return true, err
 		}
+		// 会话被删掉同样是「不再在玩」—— 好友那边要立刻把「正在玩」清掉。
+		s.notifyPlayingChanged()
 		return true, nil
 	}
 
@@ -272,6 +314,8 @@ func (s *SessionService) completeUnfinishedSession(ctx context.Context, sessionI
 	if err := cloudsync.DeleteTombstone(ctx, s.db, cloudsync.EntityPlaySession, sessionID); err != nil {
 		applog.LogWarningf(s.ctx, "completeUnfinishedSession: failed to clear play_session tombstone %s: %v", sessionID, err)
 	}
+	// 会话结束 → activity 变空，同样要立刻补发一次（好友那边及时收起「正在玩」）。
+	s.notifyPlayingChanged()
 	return false, nil
 }
 

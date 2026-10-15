@@ -77,6 +77,12 @@ type AccountService struct {
 
 	presenceCancel context.CancelFunc
 	presenceActive bool
+	// presencePush 是「立即补发一次心跳」的信号槽（容量 1，非阻塞投递）。
+	//
+	// 容量为 1 是为了**合并突发**：一次结算可能连着触发多回调（例如退出时逐个
+	// 结算未完成会话），这里最多留一次待发，不会变成心跳风暴。
+	// 由 startPresence 创建、由它的循环消费；未登录 / 心跳循环已停时投递被忽略。
+	presencePush chan struct{}
 	// 「好友开始玩游戏」轮询（对齐手机版 PresenceService 的 15 秒好友轮询）
 	friendPlayCancel context.CancelFunc
 	friendPlayActive bool
@@ -650,13 +656,21 @@ func (s *AccountService) startPresence() {
 	ctx, cancel := context.WithCancel(s.resolveContext(nil))
 	s.presenceCancel = cancel
 	s.presenceActive = true
+	// 每轮启动都换一个干净的信号槽：上一个循环可能留了一个待发信号，
+	// 沿用会让新循环立刻多打一次心跳（无害但没必要）。
+	push := make(chan struct{}, 1)
+	s.presencePush = push
 	s.mu.Unlock()
+
+	send := func(reason string) {
+		if err := s.sendHeartbeat(); err != nil {
+			applog.LogWarningf(s.ctx, "YukiHub 账号：心跳上报失败（忽略，%s）：%v", reason, err)
+		}
+	}
 
 	go func() {
 		// 先立刻发一次，别让好友等到第一个周期才看到你上线。
-		if err := s.sendHeartbeat(); err != nil {
-			applog.LogWarningf(s.ctx, "YukiHub 账号：心跳上报失败（忽略）：%v", err)
-		}
+		send("上线")
 		ticker := time.NewTicker(accountPresenceInterval)
 		defer ticker.Stop()
 		for {
@@ -664,12 +678,45 @@ func (s *AccountService) startPresence() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := s.sendHeartbeat(); err != nil {
-					applog.LogWarningf(s.ctx, "YukiHub 账号：心跳上报失败（忽略）：%v", err)
-				}
+				send("周期")
+			case <-push:
+				// 「正在玩」发生变化（开始 / 结束游玩）时的立即补发。
+				// 手机版 PresenceManager.updateActivity() 就是更新后立刻发一次心跳，
+				// 桌面端原来只在周期心跳里带 activity，好友最长要等 45 秒。
+				send("活动变化")
 			}
 		}
 	}()
+}
+
+// PushPresenceNow 立即补发一次在线状态心跳（不阻塞调用方、自动合并突发）。
+//
+// 用在「正在玩」发生变化的路径上（开始 / 结束游玩）。与手机版
+// PresenceManager.updateActivity() 的语义一致：**更新后立刻上报**，
+// 而不是等下一个 45 秒周期。
+//
+// 两条守卫：
+//   - 心跳循环已停（未登录 / 正在退出）时直接丢弃。退出路径会先 stopPresence
+//     再上报离线，此时若还允许补发，就会把刚报的离线又顶回在线，
+//     好友那边要再等 10 分钟才看到你离开（NotifyOffline 的注释里踩过同一个坑）。
+//   - 非阻塞投递 + 容量 1 的信号槽：连发多次只留一次待发，不产生心跳风暴
+//     （契约 §3.2 明确「不要加重试风暴」）。
+//
+// 这是 Go 侧的内部装配接口，不是给界面调用的。
+//
+//wails:ignore
+func (s *AccountService) PushPresenceNow() {
+	s.mu.Lock()
+	active := s.presenceActive
+	push := s.presencePush
+	s.mu.Unlock()
+	if !active || push == nil {
+		return
+	}
+	select {
+	case push <- struct{}{}:
+	default:
+	}
 }
 
 func (s *AccountService) stopPresence() {
