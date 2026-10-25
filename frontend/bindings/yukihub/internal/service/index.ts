@@ -9,6 +9,7 @@ import * as CategoryService from "./categoryservice.js";
 import * as CloudSyncService from "./cloudsyncservice.js";
 import * as ConfigService from "./configservice.js";
 import * as DownloadService from "./downloadservice.js";
+import * as ExhibitionService from "./exhibitionservice.js";
 import * as GameFilterPresetService from "./gamefilterpresetservice.js";
 import * as GameProgressService from "./gameprogressservice.js";
 import * as GameReviewService from "./gamereviewservice.js";
@@ -38,6 +39,7 @@ export {
     CloudSyncService,
     ConfigService,
     DownloadService,
+    ExhibitionService,
     GameFilterPresetService,
     GameProgressService,
     GameReviewService,

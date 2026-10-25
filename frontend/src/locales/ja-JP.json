@@ -1735,7 +1735,15 @@
     "community": "コミュニティ",
     "downloads": "ダウンロード",
     "settings": "設定",
-    "galToolbox": "Gal ツールボックス"
+    "galToolbox": "Gal ツールボックス",
+    "exhibition": "展示ホール"
+  },
+  "exhibition": {
+    "title": "3D 展示ホール",
+    "loading": "展示ホールを準備しています…",
+    "back": "戻る",
+    "loadFailedTitle": "展示ホールの読み込みに失敗しました",
+    "loadFailedDesc": "ローカルライブラリを読み込めませんでした：{{message}}"
   },
   "processSelectModal": {
     "title": "ゲームプロセスを選択",

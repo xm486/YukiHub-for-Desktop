@@ -600,6 +600,7 @@ func runGUI(
 	mcpReadService := service.NewMCPReadService()
 	mcpServerService := service.NewMCPServerService()
 	portableSetupService := service.NewPortableSetupService()
+	exhibitionService := service.NewExhibitionService()
 
 	var localFileHandler http.Handler
 	var remoteImageProxyHandler http.Handler
@@ -664,6 +665,7 @@ func runGUI(
 		mcpReadService.Init(ctx, db, config)
 		mcpServerService.Init(ctx)
 		portableSetupService.Init(ctx)
+		exhibitionService.Init(ctx, db)
 
 		startService.SetBackupService(backupService)
 		startService.SetGameService(gameService)
@@ -754,6 +756,7 @@ func runGUI(
 		application.NewService(tagService),
 		application.NewService(gameFilterPresetService),
 		application.NewService(portableSetupService),
+		application.NewService(exhibitionService),
 	}
 
 	shutdownStartupResources := func() {

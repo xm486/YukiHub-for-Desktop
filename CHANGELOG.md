@@ -13,6 +13,15 @@
 
 ### 新增
 
+- **3D 离线展厅**（侧栏「展厅」）：把手机版 `assets/exhibition` 的整套 three.js 页面
+  原样搬到桌面端 —— 走进自己的收藏馆，五个分区（在玩 / 玩过 / 搁置 / 抛弃 / 未玩）
+  各有书架、中央展台放收藏（没收藏就放最近在玩）、四座主题展台可自选陈列、
+  旋转展架展示最近游玩的封面；`WASD` 移动、拖动鼠标转视角、点击展盒看 3D 详情，
+  `Space / C / Shift` 跳、蹲、跑，`Esc` 或顶部「← 返回」退场。页面通过同源 iframe
+  加载，数据由 `ExhibitionService.GetLibraryJSON()` 产出（字段与手机版
+  `ExhibitionBridge.getMyLibrary` 同构：时长与最近游玩都是毫秒、标签已拼成一行、
+  隐藏游戏不进馆、远端封面走 `/proxy/image`）。音乐厅只有空间没有曲目（桌面端还没有
+  音乐库），在线多人展厅未做。详见 [docs/exhibition-desktop-port.md](docs/exhibition-desktop-port.md)
 - **Linux（amd64）支持**：恢复原生 Linux 运行（GTK4 / WebKitGTK 6.0）。游戏启动支持
   原生 / Wine / Proton / Steam 四种策略；URL 协议注册、托盘、Wine/Proton 辅助工具
   （winecfg / winetricks / protontricks）一并恢复；发布 deb / rpm / AppImage

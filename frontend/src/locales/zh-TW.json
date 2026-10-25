@@ -1735,7 +1735,15 @@
     "community": "社群",
     "downloads": "下載",
     "settings": "設定",
-    "galToolbox": "Gal 工具箱"
+    "galToolbox": "Gal 工具箱",
+    "exhibition": "展廳"
+  },
+  "exhibition": {
+    "title": "3D 展廳",
+    "loading": "正在佈置展廳…",
+    "back": "返回",
+    "loadFailedTitle": "展廳資料載入失敗",
+    "loadFailedDesc": "無法讀取本機遊戲庫存：{{message}}"
   },
   "processSelectModal": {
     "title": "選擇遊戲程序",

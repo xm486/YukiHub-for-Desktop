@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">   <!-- 阻止 WebView 请求 favicon（消掉"资产缺失: favicon.ico"日志噪音） -->
+<title>YukiHub 展厅</title>
+<!--
+  桌面端移植说明（本目录是手机版 assets/exhibition 的副本，改动只此几处）：
+    · 桥接注入：手机版靠 Android addJavascriptInterface 提供 window.ExhibitionBridge，
+      桌面端改成「同源 iframe 从父窗口取」。父窗口（React /exhibition 路由）会在挂
+      iframe 之前先把桥接对象准备好，所以这里同步取即可，页面侧其余代码零改动。
+    · 槽位 id：桌面主键是 UUID 字符串（手机版是自增整数），picker.js / hall.js 的
+      槽位解析相应改成按字符串处理。
+    · 输入：桌面用键盘 + 鼠标拖动，触屏动作键与摇杆不展示；Esc 返回游戏库。
+-->
+<script>
+    (function () {
+        try {
+            var host = (window.parent && window.parent !== window) ? window.parent : null;
+            if (!host) return;
+            if (host.__yukihubExhibitionBridge) {
+                window.ExhibitionBridge = host.__yukihubExhibitionBridge;
+            }
+            // NSFW 打码跟随 App 设置（hall.js 读这个全局量），缺省为 true
+            if (typeof host.__yukihubExhibitionBlurNsfw === 'boolean') {
+                window.__YH_BLUR_NSFW = host.__yukihubExhibitionBlurNsfw;
+            }
+        } catch (e) {
+            /* 跨域或宿主缺失：保持无桥接，页面自己会走降级提示 */
+        }
+    })();
+</script>
+<style>
+    :root {
+        --hud-fg: #EAF2FF;
+        --hud-dim: #9FB3CC;
+        --hud-bg: rgba(12, 18, 30, 0.62);
+        --hud-line: rgba(150, 190, 255, 0.22);
+        --accent: #7FC4FF;
+        --warn: #FFB86B;
+        --bad: #FF7B72;
+        --tap: 44px;                 /* 最小可点尺寸（触摸友好） */
+    }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0; padding: 0;
+        width: 100%; height: 100%;
+        overflow: hidden;
+        background: #05070C;
+        color: var(--hud-fg);
+        font-family: -apple-system, "Noto Sans CJK SC", "Source Han Sans SC", Roboto, sans-serif;
+        -webkit-user-select: none; user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior: none;
+    }
+    #stage { position: fixed; inset: 0; touch-action: none; }
+    #stage canvas { display: block; width: 100%; height: 100%; }
+
+    /* ==================== 左上：性能仪表 ==================== */
+    #hud {
+        position: fixed; top: 0; left: 0;
+        padding: 9px 12px;
+        pointer-events: none;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 3px rgba(0,0,0,.85);
+        z-index: 10;
+    }
+    #hud-fps { font-size: 27px; font-weight: 700; line-height: 1.05; letter-spacing: .5px; }
+    #hud-fps small { font-size: 11px; font-weight: 500; opacity: .7; margin-left: 4px; }
+    #hud-fps.good { color: #8CE99A; }
+    #hud-fps.mid  { color: var(--warn); }
+    #hud-fps.bad  { color: var(--bad); }
+    #hud-detail {
+        margin-top: 3px;
+        font-size: 10px; line-height: 1.5;
+        color: var(--hud-dim);
+        white-space: pre;
+    }
+
+    /* 右上设置：与在线展厅相同的齿轮入口 + 收起式面板 */
+    #btn-settings {
+        position: fixed; right: max(14px, env(safe-area-inset-right));
+        top: max(12px, env(safe-area-inset-top)); z-index: 35;
+        width: 44px; height: 44px; padding: 0; border-radius: 11px;
+        border: 1px solid var(--hud-line); background: var(--hud-bg);
+        color: var(--hud-fg); font-size: 22px; touch-action: manipulation;
+    }
+    #btn-settings[hidden], #debug[hidden], #settings-dismiss[hidden] { display: none; }
+    /* 桌面端「返回」：手机版靠系统返回键，桌面端在顶部居中给一个常驻入口。
+       ★ 刻意不依赖 exh.js：3D 初始化失败时（无 WebGL / 脚本报错）它就是唯一出口，
+         所以始终可见、z-index 高于 loading 与进场黑场。
+       ★ 顶部居中而不是左上角：左上角是 FPS 仪表与封面队列日志（最长 5 行），
+         按钮放那里一定会压住文字。 */
+    #btn-exit {
+        position: fixed; left: 50%; transform: translateX(-50%);
+        top: max(12px, env(safe-area-inset-top)); z-index: 46;
+        display: flex; align-items: center; gap: 5px;
+        height: 34px; padding: 0 14px; border-radius: 10px;
+        border: 1px solid var(--hud-line); background: var(--hud-bg);
+        color: var(--hud-fg); font: inherit; font-size: 12.5px;
+        touch-action: manipulation; cursor: pointer;
+    }
+    #btn-exit:hover { border-color: rgba(170,205,255,.5); background: rgba(24,34,52,.8); }
+    #btn-exit:active { transform: translateX(-50%) scale(.96); }
+    #settings-dismiss { position: fixed; inset: 0; z-index: 31; background: transparent; touch-action: none; }
+    #debug {
+        position: fixed; right: max(14px, env(safe-area-inset-right));
+        top: calc(max(12px, env(safe-area-inset-top)) + 52px); z-index: 36;
+        width: min(280px, calc(100vw - 28px)); padding: 12px;
+        max-height: calc(100vh - max(12px, env(safe-area-inset-top)) - 68px - env(safe-area-inset-bottom));
+        max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - 68px - env(safe-area-inset-bottom));
+        overflow-y: auto; overscroll-behavior: contain;
+        border: 1px solid rgba(170,205,255,.28); border-radius: 14px;
+        background: rgba(10,16,28,.92); box-shadow: 0 12px 34px rgba(0,0,0,.32);
+        backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    .set-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .set-title { margin: 0; color: var(--hud-fg); font-size: 13px; font-weight: 700; }
+    .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(170,205,255,.1);
+        color: var(--hud-dim); font-size: 12px; }
+    .set-row > span { flex-shrink: 0; }
+    .set-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+    .set-btn { min-height: 44px; min-width: 44px; padding: 6px 8px; border-radius: 8px;
+        border: 1px solid rgba(170,205,255,.2); background: rgba(255,255,255,.06);
+        color: #C8D6E8; font: inherit; font-size: 12px; touch-action: manipulation; }
+    .set-btn:active, #btn-settings:active { transform: scale(.96); }
+    .set-btn.on, #btn-settings[aria-expanded="true"] {
+        border-color: #7FC4FF; background: rgba(127,196,255,.22); color: #FFF;
+    }
+    .set-btn:focus-visible, #btn-settings:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* ==================== 动态摇杆（左半屏按下处浮现） ==================== */
+    #joystick {
+        position: fixed;
+        width: 132px; height: 132px;
+        margin: 0;
+        border-radius: 50%;
+        border: 2px solid rgba(160, 200, 255, .30);
+        background: radial-gradient(circle, rgba(120,170,255,.11), rgba(120,170,255,.03) 70%);
+        transform: translate(-50%, -50%);
+        display: none;
+        pointer-events: none;      /* 事件仍由 canvas 收，摇杆纯展示 */
+        z-index: 20;
+    }
+    #joystick.on { display: block; }
+    #joy-knob {
+        position: absolute; left: 50%; top: 50%;
+        width: 56px; height: 56px;
+        border-radius: 50%;
+        background: rgba(190, 220, 255, .26);
+        border: 1.5px solid rgba(205, 228, 255, .55);
+        box-shadow: 0 0 16px rgba(127,196,255,.25);
+        transform: translate(-50%, -50%);
+    }
+
+    /* ==================== 右下：动作键（标准 3D 手游弧形簇） ==================== */
+    /*  跳跃  ↗ 右上（最高，最不易误触）
+        奔跑  ← 蹲下左侧偏上
+        蹲下  ↘ 右下角                                 */
+    #actions {
+        position: fixed; right: 0; bottom: 0;
+        width: 214px; height: 206px;
+        z-index: 30;
+        pointer-events: none;          /* 只让按钮本身可点，空白处仍可转视角 */
+    }
+    .abtn {
+        position: absolute;
+        display: flex; align-items: center; justify-content: center;
+        border-radius: 50%;
+        border: 1px solid var(--hud-line);
+        background: var(--hud-bg);
+        color: var(--hud-fg);
+        font-weight: 700;
+        backdrop-filter: blur(9px);
+        -webkit-backdrop-filter: blur(9px);
+        touch-action: manipulation;
+        pointer-events: auto;
+        transition: transform .06s ease-out, box-shadow .12s ease-out;
+    }
+    .abtn:active, .abtn.press { transform: scale(.92); }
+    .abtn.on {
+        border-color: rgba(127,196,255,.8);
+        box-shadow: 0 0 0 1px rgba(127,196,255,.4) inset, 0 0 16px rgba(127,196,255,.3);
+        color: #DCEBFF;
+    }
+    /* 跳跃：右上，抬高 */
+    #btn-jump   { right: 18px;  bottom: 112px; width: 76px; height: 76px; font-size: 15px; }
+    /* 蹲下：右下角 */
+    #btn-crouch { right: 26px;  bottom: 14px;  width: 62px; height: 62px; font-size: 13px; }
+    /* 奔跑：蹲下左边偏上 */
+    #btn-run    { right: 106px; bottom: 60px;  width: 62px; height: 62px; font-size: 13px; }
+
+    /* ==================== 3D 展品查看器（点击盒子弹出） ==================== */
+    #detail {
+        position: fixed; inset: 0;
+        z-index: 40;
+        background: radial-gradient(120% 90% at 50% 0%, rgba(24,32,48,0.97), rgba(6,9,15,0.99));
+        display: flex; flex-direction: row;
+    }
+    #detail[hidden] { display: none; }
+
+    /* 左：3D 展台（可拖动旋转） */
+    #d-stage {
+        flex: 1 1 auto;
+        min-width: 0;
+        position: relative;
+        touch-action: none;      /* 拖动转盒子时不要触发页面滚动 */
+        cursor: grab;
+    }
+    #d-stage.dragging { cursor: grabbing; }
+    #d-stage canvas { display: block; width: 100%; height: 100%; }
+    #d-stage-hint {
+        position: absolute; left: 50%; bottom: 14px;
+        transform: translateX(-50%);
+        font-size: 12px; color: #7E8B9C;
+        letter-spacing: 1px;
+        pointer-events: none;
+    }
+    /* 拖动提示的左右箭头装饰 */
+    #d-stage::before, #d-stage::after {
+        content: ''; position: absolute; top: 50%;
+        width: 34px; height: 34px; margin-top: -17px;
+        border-radius: 50%;
+        border: 1px solid rgba(196,169,107,0.25);
+        pointer-events: none;
+    }
+    #d-stage::before { left: 16px; }
+    #d-stage::after { right: 16px; }
+
+    /* 右：信息栏 */
+    #d-panel {
+        flex: 0 0 clamp(300px, 38%, 460px);
+        overflow-y: auto;
+        padding: 26px 24px 32px;
+        border-left: 1px solid var(--hud-line);
+        background: rgba(10, 15, 24, 0.72);
+        -webkit-overflow-scrolling: touch;
+    }
+    #d-panel::-webkit-scrollbar { width: 4px; }
+    #d-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 2px; }
+
+    #d-title { font-size: 20px; font-weight: 700; color: #FFFFFF; line-height: 1.35; }
+    #d-sub { margin-top: 4px; font-size: 12px; color: #8FA6C0; line-height: 1.5; }
+    #d-meta { margin-top: 14px; font-size: 13px; color: #C9D6E6; line-height: 1.9; }
+    #d-tags { margin-top: 10px; font-size: 12px; color: #9FB3CC; line-height: 1.7; word-break: break-all; }
+
+    /* 时长进度环 */
+    #d-ring-wrap {
+        margin-top: 18px;
+        display: flex; align-items: center; gap: 14px;
+    }
+    #d-ring { flex: 0 0 84px; width: 84px; height: 84px; }
+    #d-ring-text { font-size: 12px; color: #9FB3CC; line-height: 1.8; }
+
+    .d-badge {
+        display: inline-block;
+        margin: 0 6px 4px 0;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        border: 1px solid rgba(255,255,255,.18);
+        color: #C9D6E6;
+    }
+    .d-badge.fav { border-color: rgba(242,197,107,.6); color: #F2C56B; }
+    .d-badge.playing { border-color: rgba(102,224,192,.6); color: #66E0C0; }
+    .d-badge.done { border-color: rgba(127,196,255,.6); color: #7FC4FF; }
+    .d-badge.unplayed { border-color: rgba(140,150,166,.5); color: #8E9AAB; }
+    .d-badge.nsfw { border-color: rgba(232,124,124,.6); color: #E87C7C; }
+
+    #d-close {
+        position: absolute; top: 16px; right: 18px;
+        padding: 7px 14px;
+        border-radius: 10px;
+        border: 1px solid var(--hud-line);
+        background: rgba(255,255,255,.07);
+        font-size: 13px; color: #DCEBFF;
+        z-index: 2;
+    }
+    #d-close:active { transform: scale(.95); }
+
+    #hint {
+        position: fixed; left: 12px; bottom: 10px;
+        max-width: 46vw;
+        font-size: 11px; line-height: 1.5;
+        color: var(--hud-dim);
+        text-shadow: 0 1px 3px rgba(0,0,0,.85);
+        pointer-events: none;
+        z-index: 10;
+    }
+
+    /* ==================== 覆盖层 ==================== */
+    #overlay {
+        position: fixed; inset: 0;
+        display: none; flex-direction: column;
+        align-items: center; justify-content: center;
+        gap: 10px; padding: 28px; text-align: center;
+        background: rgba(5,7,12,.94);
+        z-index: 50;
+    }
+    #overlay.show { display: flex; }
+    #overlay h2 { margin: 0; font-size: 16px; color: var(--warn); }
+    #overlay p  { margin: 0; font-size: 12px; line-height: 1.7; color: var(--hud-dim); max-width: 560px; }
+    #overlay code {
+        display: block; margin-top: 6px; padding: 8px 10px;
+        max-width: 560px; max-height: 40vh; overflow: auto;
+        border-radius: 8px; border: 1px solid var(--hud-line);
+        background: rgba(0,0,0,.45);
+        font-size: 11px; text-align: left;
+        color: #C9D6E6;
+        white-space: pre-wrap; word-break: break-all;
+    }
+    /* 进场淡入用的黑场（boot 完成后淡出移除） */
+    #fade {
+        position: fixed; inset: 0;
+        background: #05070C;
+        z-index: 45;
+        pointer-events: none;
+        opacity: 1;
+        transition: opacity .85s ease-out;
+    }
+    #fade.hide { opacity: 0; }
+
+    #loading {
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; color: var(--hud-dim);
+        background: #05070C;
+        z-index: 40;
+    }
+    #loading.hide { display: none; }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+
+<div id="fade"></div>
+
+<div id="hud" hidden>
+    <div id="hud-fps">--<small>FPS</small></div>
+    <div id="hud-detail"></div>
+</div>
+
+<div id="pad-hint" hidden>
+    <span class="pad-icon">🎮</span> 手柄已连接
+</div>
+<button id="btn-settings" type="button" aria-label="展厅设置" aria-controls="debug" aria-expanded="false" hidden>⚙</button>
+<button id="btn-exit" type="button" aria-label="返回游戏库" title="返回游戏库（Esc）">← 返回</button>
+<div id="settings-dismiss" hidden aria-hidden="true"></div>
+<section id="debug" hidden aria-labelledby="settings-title">
+    <div class="set-head"><h2 id="settings-title" class="set-title">展厅设置</h2>
+        <button id="btn-settings-close" class="set-btn" type="button" aria-label="关闭设置">×</button></div>
+    <div class="set-row"><span>画质倍率</span><div class="set-buttons" role="group" aria-label="画质倍率">
+        <button class="set-btn" type="button" data-scale="1">1.0x</button>
+        <button class="set-btn" type="button" data-scale="1.5">1.5x</button>
+        <button class="set-btn" type="button" data-scale="2">2.0x</button>
+        <button class="set-btn" type="button" data-scale="2.5">2.5x</button>
+        <button class="set-btn" type="button" data-scale="3">3.0x</button>
+    </div></div>
+    <div class="set-row"><span>帧率上限</span><div class="set-buttons" role="group" aria-label="帧率上限">
+        <button class="set-btn" type="button" data-fps="30">30</button>
+        <button class="set-btn" type="button" data-fps="60">60</button>
+        <button class="set-btn" type="button" data-fps="90">90</button>
+        <button class="set-btn" type="button" data-fps="0">不限</button>
+    </div></div>
+    <div class="set-row"><span>视角灵敏度</span><div class="set-buttons" role="group" aria-label="视角灵敏度">
+        <button class="set-btn" type="button" data-look="1">标准</button>
+        <button class="set-btn" type="button" data-look="1.6">高</button>
+    </div></div>
+    <div class="set-row"><span>性能详情</span><button class="set-btn" type="button" id="btn-detail">开</button></div>
+    <div class="set-row"><span>声音</span><button class="set-btn" type="button" id="btn-sound">开</button></div>
+</section>
+
+<div id="joystick"><div id="joy-knob"></div></div>
+
+<div id="actions" hidden>
+    <div class="abtn" id="btn-run">奔跑</div>
+    <div class="abtn" id="btn-crouch">蹲下</div>
+    <div class="abtn" id="btn-jump">跳跃</div>
+</div>
+
+<div id="detail" hidden>
+    <div id="d-stage">
+        <div id="d-stage-hint">拖动可旋转展盒</div>
+    </div>
+    <div id="d-panel">
+        <div id="d-close">关闭</div>
+        <div id="d-title"></div>
+        <div id="d-sub"></div>
+        <div id="d-meta"></div>
+        <div id="d-tags"></div>
+        <div id="d-ring-wrap">
+            <canvas id="d-ring" width="84" height="84"></canvas>
+            <div id="d-ring-text"></div>
+        </div>
+    </div>
+</div>
+
+<div id="hint" hidden>
+    W A S D 移动 · 拖动鼠标转视角 · 点击展盒看详情 · Esc 返回
+</div>
+
+<div id="loading">正在构建展厅…</div>
+
+<div id="overlay">
+    <h2 id="ov-title">展厅启动失败</h2>
+    <p id="ov-desc"></p>
+    <code id="ov-code"></code>
+</div>
+
+<!-- 不支持 ES module 的运行时：给出明确提示，避免静默白屏 -->
+<script nomodule>
+    (function () {
+        document.getElementById('loading').classList.add('hide');
+        document.getElementById('ov-title').textContent = '运行环境不支持 ES module';
+        document.getElementById('ov-desc').textContent =
+            '本展厅需要支持 ES module 的浏览器内核（WebView2 / Chromium 61+）。' +
+            '请更新系统的 WebView2 运行时后重试。';
+        document.getElementById('ov-code').textContent = 'UA: ' + navigator.userAgent;
+        document.getElementById('overlay').classList.add('show');
+    })();
+</script>
+
+<!-- 看门狗：模块加载/执行失败时不至于静默白屏 -->
+<script>
+    window.__exhBooted = false;
+    setTimeout(function () {
+        if (window.__exhBooted) return;
+        var ov = document.getElementById('overlay');
+        if (!ov || ov.classList.contains('show')) return;
+        document.getElementById('loading').classList.add('hide');
+        document.getElementById('ov-title').textContent = '展厅未能启动';
+        document.getElementById('ov-desc').textContent =
+            '离线页模块没有在 8 秒内启动完成，通常是三方文件缺失或渲染内核版本过旧。' +
+            '请检查 frontend/public/exhibition-hall/ 下的 exh.js 与 vendor/three.module.min.js 是否都打包进去了。';
+        document.getElementById('ov-code').textContent = 'UA: ' + navigator.userAgent;
+        ov.classList.add('show');
+    }, 8000);
+</script>
+
+<script type="module" src="./exh.js"></script>
+
+<!--
+  返回按钮：故意写在这里而不是 exh.js 里。
+  exh.js 启动失败（WebGL 初始化异常、脚本报错）时页面只剩错误覆盖层，
+  这时它是唯一能退出去的入口；挂在 3D 引擎的初始化流程里就一起没了。
+  Esc 的等价行为仍在 exh.js（那边要先判断设置面板是否开着）。
+-->
+<script>
+    (function () {
+        var btn = document.getElementById('btn-exit');
+        if (!btn) return;
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            try {
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({ type: 'yukihub-exhibition-exit' }, '*');
+                }
+            } catch (err) { /* 宿主不可达时无计可施 */ }
+        });
+    })();
+</script>
+
+<!-- ==================== 选品浮层（主题展台自定义陈列） ==================== -->
+<div id="picker" hidden>
+    <div id="pk-box">
+        <div id="pk-head">
+            <span id="pk-title">选择要陈列的展品</span>
+            <div id="pk-close">✕</div>
+        </div>
+        <div id="pk-grid"></div>
+        <div id="pk-foot">
+            <div class="pk-btn" id="pk-clear" hidden>清空此展台</div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* 选品浮层：全屏遮罩 + 居中面板 */
+    /* ---------- 手柄连接提示（Q4） ---------- */
+    #pad-hint {
+        position: fixed; top: max(14px, env(safe-area-inset-top)); right: calc(max(14px, env(safe-area-inset-right)) + 52px); z-index: 30;
+        padding: 7px 13px; border-radius: 999px;
+        background: rgba(20, 28, 42, .82);
+        border: 1px solid rgba(120, 220, 190, .45);
+        color: #9FF0D4; font-size: 12.5px; letter-spacing: .3px;
+        font-family: system-ui, -apple-system, "Noto Sans SC", sans-serif;
+        pointer-events: none;
+        animation: padIn .28s ease-out;
+    }
+    #pad-hint .pad-icon { margin-right: 4px; }
+    @keyframes padIn {
+        from { opacity: 0; transform: translateY(-6px); }
+        to   { opacity: 1; transform: none; }
+    }
+
+    #picker {
+        position: fixed; inset: 0; z-index: 60;
+        background: rgba(6, 10, 18, .72);
+        backdrop-filter: blur(3px);
+        display: flex; align-items: center; justify-content: center;
+        font-family: system-ui, -apple-system, "Noto Sans SC", sans-serif;
+    }
+    #picker[hidden] { display: none; }
+
+    #pk-box {
+        width: min(88vw, 780px);
+        max-height: min(82vh, 720px);
+        display: flex; flex-direction: column;
+        background: linear-gradient(180deg, #1B2433, #151C29);
+        border: 1px solid rgba(170, 200, 255, .16);
+        border-radius: 16px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+        overflow: hidden;
+    }
+
+    #pk-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid rgba(170, 200, 255, .12);
+    }
+    #pk-title { color: #E6EEFB; font-size: 16px; font-weight: 600; letter-spacing: .3px; }
+    #pk-close {
+        width: 32px; height: 32px; line-height: 32px; text-align: center;
+        color: #9FB0C6; font-size: 16px; cursor: pointer;
+        border-radius: 9px; background: rgba(255, 255, 255, .05);
+        user-select: none;
+    }
+    #pk-close:active { transform: scale(.94); }
+
+    /* 封面网格：自适应列数，可滚动 */
+    #pk-grid {
+        flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+        gap: 12px;
+        padding: 16px 18px;
+    }
+
+    .pk-card {
+        position: relative;
+        display: flex; flex-direction: column; align-items: center;
+        cursor: pointer; border-radius: 10px; padding: 6px;
+        border: 1px solid transparent;
+        transition: background .12s, border-color .12s;
+    }
+    .pk-card:active { background: rgba(140, 190, 255, .12); }
+    .pk-card-cur { border-color: rgba(255, 214, 140, .55); background: rgba(255, 214, 140, .07); }
+
+    .pk-thumb {
+        width: 100%; aspect-ratio: 3 / 4.3; object-fit: cover;
+        border-radius: 7px; background: #0E1420; display: block;
+    }
+    .pk-name {
+        margin-top: 6px; width: 100%;
+        color: #C7D4E5; font-size: 11.5px; line-height: 1.35;
+        text-align: center;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .pk-tag {
+        position: absolute; top: 8px; left: 8px;
+        background: rgba(255, 120, 150, .85); color: #fff;
+        font-size: 9px; font-weight: 700; line-height: 1;
+        padding: 3px 5px; border-radius: 5px;
+    }
+    .pk-empty {
+        grid-column: 1 / -1; padding: 40px 0;
+        color: #7E8B9C; font-size: 14px; text-align: center;
+    }
+
+    #pk-foot {
+        padding: 12px 18px 16px;
+        border-top: 1px solid rgba(170, 200, 255, .1);
+        display: flex; justify-content: flex-end;
+    }
+    .pk-btn {
+        padding: 9px 16px; border-radius: 10px;
+        background: rgba(255, 140, 160, .14);
+        border: 1px solid rgba(255, 140, 160, .35);
+        color: #FFB0C0; font-size: 13.5px; cursor: pointer;
+        user-select: none;
+    }
+    .pk-btn:active { transform: scale(.97); }
+</style>
+</body>
+</html>

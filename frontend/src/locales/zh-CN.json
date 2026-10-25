@@ -1735,7 +1735,15 @@
     "community": "社区",
     "downloads": "下载",
     "settings": "设置",
-    "galToolbox": "Gal 工具箱"
+    "galToolbox": "Gal 工具箱",
+    "exhibition": "展厅"
+  },
+  "exhibition": {
+    "title": "3D 展厅",
+    "loading": "正在布置展厅…",
+    "back": "返回",
+    "loadFailedTitle": "展厅数据加载失败",
+    "loadFailedDesc": "无法读取本机游戏库存：{{message}}"
   },
   "processSelectModal": {
     "title": "选择游戏进程",

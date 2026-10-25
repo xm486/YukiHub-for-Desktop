@@ -1735,7 +1735,15 @@
     "community": "Community",
     "downloads": "Downloads",
     "settings": "Settings",
-    "galToolbox": "Gal Toolbox"
+    "galToolbox": "Gal Toolbox",
+    "exhibition": "Exhibition"
+  },
+  "exhibition": {
+    "title": "3D Exhibition",
+    "loading": "Setting up the exhibition…",
+    "back": "Back",
+    "loadFailedTitle": "Failed to load the exhibition",
+    "loadFailedDesc": "Could not read your local library: {{message}}"
   },
   "processSelectModal": {
     "title": "Select Game Process",

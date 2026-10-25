@@ -12,6 +12,7 @@ import { DragDropImportModal } from "../components/modal/DragDropImportModal";
 import { ShortcutsDialog } from "../components/modal/ShortcutsDialog";
 import { AppToaster } from "../components/ui/AppToaster";
 import { APP_MODAL_ROOT_ID } from "../components/ui/ModalPortal";
+import { EXHIBITION_PATH } from "../exhibition/constants";
 import { useGlobalShortcuts } from "../hooks/useGlobalShortcuts";
 import { useAppStore } from "../store";
 
@@ -148,6 +149,12 @@ function RootLayout() {
         <ShortcutsDialog />
       </>
     );
+  }
+
+  // 展厅也是无外壳全屏路由：里面是一整张 WebGL 页面，
+  // 任何外壳元素压在上面都会挡操作（而且顶栏的"关闭"会误触退出）。
+  if (pathname === EXHIBITION_PATH) {
+    return <Outlet />;
   }
 
   return (

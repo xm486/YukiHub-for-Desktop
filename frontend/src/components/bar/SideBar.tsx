@@ -10,6 +10,7 @@ import {
 import { onWailsEvent } from "../../../src/bindings/runtime";
 import galToolboxIconUrl from "../../assets/links/gal-toolbox.png";
 import { OPEN_FRIENDS_PANEL_EVENT } from "../../consts/events";
+import { EXHIBITION_PATH } from "../../exhibition/constants";
 import { useAccountStatus } from "../../hooks/useAccountStatus";
 import { useAppStore } from "../../store";
 import { SnowflakeMark } from "../branding/SnowflakeMark";
@@ -151,6 +152,11 @@ export function SideBar({ bgEnabled = false, bgOpacity = 0.85 }: SideBarProps) {
       to: "/categories",
       label: t("sideBar.categories"),
       icon: "i-mdi-format-list-bulleted",
+    },
+    {
+      to: EXHIBITION_PATH,
+      label: t("sideBar.exhibition"),
+      icon: "i-mdi-view-gallery",
     },
   ];
 

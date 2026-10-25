@@ -22,6 +22,7 @@ import { Route as bigscreenRoute } from "./routes/bigscreen";
 import { Route as categoriesRoute } from "./routes/categories";
 import { Route as categoryRoute } from "./routes/category";
 import { Route as downloadsRoute } from "./routes/downloads";
+import { Route as exhibitionRoute } from "./routes/exhibition";
 import { Route as gameRoute } from "./routes/game";
 import { Route as indexRoute } from "./routes/index";
 import { Route as libraryRoute } from "./routes/library";
@@ -33,6 +34,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   libraryRoute,
   bigscreenRoute,
+  exhibitionRoute,
   gameRoute,
   statsRoute,
   categoriesRoute,
