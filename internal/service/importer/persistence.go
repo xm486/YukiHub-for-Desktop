@@ -1319,7 +1319,11 @@ func (c *Committer) addImportedItemSessions(ctx context.Context, conn *sql.Conn,
 		start_time TIMESTAMPTZ,
 		end_time TIMESTAMPTZ,
 		duration INTEGER,
-		updated_at TIMESTAMPTZ
+		updated_at TIMESTAMPTZ,
+		-- 「对端是否更新」的守卫一律比毫秒整数：Appender 与普通 Exec 写 TIMESTAMPTZ
+		-- 的时区解释不一致（实测 Appender 那条会被当成 UTC 墙钟时间），
+		-- 直接比时间戳会恒真 —— games 那张暂存表踩过，这里沿用同一套做法。
+		updated_at_ms BIGINT
 	)`)
 	if err != nil {
 		return 0, fmt.Errorf("create temp_import_play_sessions: %w", err)
@@ -1341,7 +1345,15 @@ func (c *Committer) addImportedItemSessions(ctx context.Context, conn *sql.Conn,
 					session.UpdatedAt = now
 				}
 				items[itemIndex].Sessions[sessionIndex] = session
-				if err := appender.AppendRow(session.ID, session.GameID, session.StartTime, session.EndTime, int64(session.Duration), session.UpdatedAt); err != nil {
+				if err := appender.AppendRow(
+					session.ID,
+					session.GameID,
+					session.StartTime,
+					session.EndTime,
+					int64(session.Duration),
+					session.UpdatedAt,
+					session.UpdatedAt.UnixMilli(),
+				); err != nil {
 					return fmt.Errorf("append imported session for %s: %w", items[itemIndex].Game.Name, err)
 				}
 				inserted++
@@ -1355,9 +1367,14 @@ func (c *Committer) addImportedItemSessions(ctx context.Context, conn *sql.Conn,
 	if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS temp_import_play_sessions_dedup`); err != nil {
 		return inserted, fmt.Errorf("drop temp_import_play_sessions_dedup: %w", err)
 	}
+	// 两级去重，缺一不可：
+	//   * time_rank —— 同一次游玩被两端各记了一条（uuid 不同、起止时间相同）时只留一条；
+	//   * id_rank   —— **同一个 session_uuid 在快照里出现多次且起止时间不同**时必须只留
+	//     一条，否则下面的 ON CONFLICT 会在同一条语句里撞两次主键，直接报
+	//     `Duplicate key ... violates primary key constraint`（实测的同步失败就是它）。
 	if _, err := conn.ExecContext(ctx, `
 		CREATE TEMP TABLE temp_import_play_sessions_dedup AS
-		SELECT id, game_id, start_time, end_time, duration, updated_at
+		SELECT id, game_id, start_time, end_time, duration, updated_at, updated_at_ms
 		FROM (
 			SELECT
 				id,
@@ -1366,20 +1383,38 @@ func (c *Committer) addImportedItemSessions(ctx context.Context, conn *sql.Conn,
 				end_time,
 				duration,
 				updated_at,
+				updated_at_ms,
+				ROW_NUMBER() OVER (
+					PARTITION BY id
+					ORDER BY updated_at_ms DESC
+				) AS id_rank,
 				ROW_NUMBER() OVER (
 					PARTITION BY game_id, start_time, end_time
-					ORDER BY updated_at DESC, id
-				) AS row_num
+					ORDER BY updated_at_ms DESC, id
+				) AS time_rank
 			FROM temp_import_play_sessions
 		)
-		WHERE row_num = 1
+		WHERE id_rank = 1 AND time_rank = 1
 	`); err != nil {
 		return inserted, fmt.Errorf("deduplicate imported sessions: %w", err)
 	}
 
-	var toInsert int
-	if err := conn.QueryRowContext(ctx, `
-		SELECT COUNT(*)
+	// 「这次要写哪些行」先落成一张暂存表：判据集中一处、计数与写入共用，避免两边漂移；
+	// 同时让最后的 UPSERT 只是一句 `INSERT ... SELECT FROM 暂存表`，
+	// 不带任何指向目标表的子查询 —— 那种组合在 DuckDB 里最容易踩坑。
+	//
+	//   * 起止时间已存在 ⇒ 同一次游玩的另一条记录，跳过（原有语义，避免重复累计）；
+	//   * 同一个 id 已存在且本地 updated_at 更晚 ⇒ 对端是旧快照，跳过。
+	//     与手机版 importPlaySessionsJson（GameRepository.java:791
+	//     `if (existingSessionId > 0 && incomingUpdatedAt < existingUpdatedAt) continue;`）
+	//     一致：本地正在游玩的会话每次心跳都会刷新 updated_at，
+	//     因此不会被旧快照的「未结束 / 更短时长」覆盖回去。
+	if _, err := conn.ExecContext(ctx, `DROP TABLE IF EXISTS temp_import_play_sessions_write`); err != nil {
+		return inserted, fmt.Errorf("drop temp_import_play_sessions_write: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `
+		CREATE TEMP TABLE temp_import_play_sessions_write AS
+		SELECT t.id, t.game_id, t.start_time, t.end_time, t.duration, t.updated_at
 		FROM temp_import_play_sessions_dedup t
 		WHERE NOT EXISTS (
 			SELECT 1
@@ -1388,28 +1423,42 @@ func (c *Committer) addImportedItemSessions(ctx context.Context, conn *sql.Conn,
 			  AND p.start_time = t.start_time
 			  AND p.end_time = t.end_time
 		)
-	`).Scan(&toInsert); err != nil {
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM play_sessions p2
+			WHERE p2.id = t.id
+			  AND COALESCE(epoch_ms(p2.updated_at), 0) > t.updated_at_ms
+		)
+	`); err != nil {
+		return inserted, fmt.Errorf("filter imported sessions to write: %w", err)
+	}
+
+	var toWrite int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM temp_import_play_sessions_write`).Scan(&toWrite); err != nil {
 		return inserted, fmt.Errorf("count deduplicated imported sessions: %w", err)
 	}
-	if toInsert == 0 {
+	if toWrite == 0 {
 		return 0, nil
 	}
 
+	// 必须 UPSERT，不能是纯 INSERT：通过守卫的行既可能是新增，也可能是
+	// 「同一个 session_uuid 的新版本」（同一场游玩两端各存了一份、end_time 不同 ——
+	// 本地按墙钟结算、快照按 duration 反推）。早先的纯 INSERT 一遇到后者就报
+	// `Duplicate key "id: ..." violates primary key constraint`，整次同步失败。
 	if _, err := conn.ExecContext(ctx, `
 		INSERT INTO play_sessions (id, game_id, start_time, end_time, duration, updated_at)
 		SELECT id, game_id, start_time, end_time, duration, updated_at
-		FROM temp_import_play_sessions_dedup t
-		WHERE NOT EXISTS (
-			SELECT 1
-			FROM play_sessions p
-			WHERE p.game_id = t.game_id
-			  AND p.start_time = t.start_time
-			  AND p.end_time = t.end_time
-		)
+		FROM temp_import_play_sessions_write
+		ON CONFLICT (id) DO UPDATE SET
+			game_id = EXCLUDED.game_id,
+			start_time = EXCLUDED.start_time,
+			end_time = EXCLUDED.end_time,
+			duration = EXCLUDED.duration,
+			updated_at = EXCLUDED.updated_at
 	`); err != nil {
 		return inserted, fmt.Errorf("insert imported sessions from staging: %w", err)
 	}
-	return toInsert, nil
+	return toWrite, nil
 }
 
 func (c *Committer) deleteImportedItemTombstones(ctx context.Context, conn *sql.Conn, items []CommitItem) error {
@@ -1626,6 +1675,7 @@ func stagingTableNames() []string {
 		"temp_import_game_favorites",
 		"temp_import_play_sessions",
 		"temp_import_play_sessions_dedup",
+		"temp_import_play_sessions_write",
 		"temp_import_tombstones",
 	}
 }

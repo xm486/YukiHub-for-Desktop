@@ -260,14 +260,32 @@ Android 侧 `root_uri` 为空时走 `findByTitleForEmptyRoot` **纯标题匹配*
 副作用：skip 动作下，桌面端手动添加的同名游戏（带路径）也会被跳过——
 这是标题匹配语义的固有代价，Android 侧同样如此。
 
-**③ 会话幂等的实际保证是"条目级"而非"键级"**
+**③ 会话幂等改为「按主键 UPSERT」（原为「条目级近似」，2026-10-25 修复）**
 
-契约要求以 `session_uuid` 为幂等键。实际实现是两层近似：
-条目被跳过（skip 或 merge 之外的路径）时会话根本不会写入；
-条目合并时按 `(game_id, start_time, end_time)` 去重。数据库层没有
-`session_uuid` 唯一约束，`play_sessions.id`（= session_uuid）是主键但
-去重判断不查它。正常流程下等价；极端情况（同 UUID 不同时间戳的手工数据）
-会插入重复。记录在案，暂不修——需要唯一约束级别的保证时再上。
+契约要求以 `session_uuid` 为幂等键，桌面端 `play_sessions.id` 就是 `session_uuid`
+（见 `convertYukiHubSessions`）。早先的写入前判重只按 `(game_id, start_time, end_time)`、
+**从不查主键**，数据库层也没有兜底，于是出现线上故障：
+
+```
+导入快照失败: insert imported sessions from staging: Constraint Error:
+Duplicate key "id: 022c07de-..." violates primary key constraint.
+```
+
+触发条件：同一场游玩在两端各存一份、`end_time` 略有差异（本地按墙钟结算，快照按
+`duration` 反推），判重认为「不存在」→ INSERT → 撞主键，整次同步连同其它数据一起回滚。
+同一份快照里同一个 `session_uuid` 出现两次且起止时间不同，也会在同一条语句里撞两次主键。
+
+现在按手机版 `importPlaySessionsJson`（`GameRepository.java:764-808`）的语义重写：
+按主键查重、`updated_at` 不早于本地才覆盖、命中则 UPSERT（不是 INSERT）。
+落库前两道守卫都用毫秒整数比较（Appender 写 TIMESTAMPTZ 的时区解释与普通 Exec 不一致）：
+
+- 起止时间已存在 ⇒ 跳过（保持「两端各记一条不重复累计」的原有语义）；
+- 同 `id` 且本地 `updated_at` 更晚 ⇒ 跳过（对端是旧快照，不能把本地**正在游玩**、
+  `end_time IS NULL` 的会话结掉，否则好友那边会突然收起「正在玩」）。
+
+去重同时按 `id` 与 `(game_id, start_time, end_time)` 两级，保证一条语句内不会自我冲突。
+测试：`internal/service/importer/persistence_sessions_test.go`（4 条，真 DuckDB，
+含两条负向验证 —— 还原旧逻辑即复现用户报的 `Duplicate key` 原文）。
 
 **④ 游玩状态（play_status）在 merge 动作下不更新**
 

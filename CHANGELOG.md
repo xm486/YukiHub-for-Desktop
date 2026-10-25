@@ -159,6 +159,17 @@
 
 ### 修复（选）
 
+- **云同步 / WebDAV 同步直接失败**：`导入快照失败: insert imported sessions from staging:
+  Constraint Error: Duplicate key "id: ..." violates primary key constraint.`
+  快照里的 `session_uuid` 就是本地 `play_sessions.id`，但写入前只按
+  `(game_id, start_time, end_time)` 判重、**从不查主键** —— 同一场游玩在两端各存一份、
+  `end_time` 略有差异（本地按墙钟结算，快照按 `duration` 反推）时，判重认为「不存在」→
+  INSERT → 撞主键，整次同步连同其它数据一起回滚。同一份快照里同一 `session_uuid`
+  出现两次且起止不同，也会在一条语句里撞两次主键。现在按手机版
+  `importPlaySessionsJson`（`GameRepository.java:764-808`）的语义改成按主键 UPSERT、
+  `updated_at` 不早于本地才覆盖；落库前两道守卫（起止时间已存在 / 同 id 但本地更新）用毫秒
+  整数比较，去重同时按 `id` 与起止时间两级，保证不会自我冲突。顺带修掉一个隐患：
+  旧快照再也不会把本地**正在游玩**（`end_time IS NULL`）的会话结掉
 - **启动游戏后好友要等几十秒才看到「正在玩」**（修完启动后，用户又发现「退出还是慢」）。
   手机版 `PresenceManager.updateActivity()`（开始，`PresenceManager.java:143`）与
   `clearPlayingGame()`（结束，`:169`）都是「改完**立刻**发一次心跳」，桌面端只在 45 秒的
