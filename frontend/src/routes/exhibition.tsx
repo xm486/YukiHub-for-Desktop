@@ -70,6 +70,9 @@ function ExhibitionPage() {
 
   const [libraryJSON, setLibraryJSON] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 页面自己调 onReady 才算真的起来了；没起来就由 React 侧兜底给一个退出口
+  const [pageReady, setPageReady] = useState(false);
+  const [readyTimedOut, setReadyTimedOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +91,22 @@ function ExhibitionPage() {
       cancelled = true;
     };
   }, []);
+
+  // 兜底退出口：唯一的内嵌出口在展厅页面自己身上，一旦页面没加载出来
+  // （资产 404、渲染内核起不来），里面那个「← 返回」也不存在 —— 用户就被困在
+  // 一块黑屏里。这里等 6 秒仍没收到 onReady，就在宿主侧浮一个返回按钮。
+  // 正常情况页面 1 秒内就 ready，按钮永远不会出现（不闪）。
+  useEffect(() => {
+    if (pageReady) {
+      return;
+    }
+    const timer = window.setTimeout(() => setReadyTimedOut(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [pageReady]);
+
+  // 用派生值而不是自己再存一份状态：ready 之后按钮永远不显示，
+  // 也不需要在 effect 里"把状态改回去"
+  const showFallbackExit = !pageReady && readyTimedOut;
 
   const handleExit = useCallback(() => {
     // 从哪来回哪去：展厅是"走进另一间屋子"，不该把用户丢回首页
@@ -125,6 +144,7 @@ function ExhibitionPage() {
     const host = window as ExhibitionHostWindow;
     const value: ExhibitionBridge = {
       onReady: (stage) => {
+        setPageReady(true);
         debugLog(`页面就绪：${stage}`);
       },
       onPerf: (json) => {
@@ -190,7 +210,16 @@ function ExhibitionPage() {
   }
 
   return (
-    <div className="h-screen w-full bg-[#05070C]">
+    <div className="relative h-screen w-full bg-[#05070C]">
+      {showFallbackExit && (
+        <button
+          type="button"
+          onClick={handleExit}
+          className="absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-lg border border-white/25 bg-black/70 px-4 py-2 text-xs text-slate-100 transition-colors hover:bg-black/85"
+        >
+          {t("exhibition.back")}
+        </button>
+      )}
       {/*
         刻意不加 sandbox：页面必须与本页面**同源**才能读到
         parent.__yukihubExhibitionBridge（不透明 origin 下会直接抛异常）；

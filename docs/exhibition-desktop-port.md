@@ -62,7 +62,7 @@ favorite / nsfw / tags / hasCover / cover`
 | 槽位（陈列位）id 按**字符串**处理 | 桌面端主键是 UUID，手机版是自增整数。原实现 `parseInt` 会把 UUID 解析成 `NaN` → 槽位永远读成空台，玩家选完也摆不上去（已用无头浏览器验证：回退成 `parseInt` 后 5 条断言立刻变红） |
 | 陈列位存 `localStorage`，不落配置 | 手机版用 SharedPreferences（清缓存不丢）；桌面端 WebView2 的 localStorage 同样跨启动保留，且这份数据本来就不参与云同步。省一套设置项读写 |
 | 输入提示与触屏按键 | 桌面端用 WASD / 鼠标拖动 / Space / C / Shift，所以 `#actions`（跳跃/蹲下/奔跑圆钮）与摇杆只在**粗指针**设备上显示；底部提示文案随之切换 |
-| 退出方式 | 手机版靠系统返回键；桌面端在**顶部居中**加常驻「← 返回」按钮，`Esc` 同效（`postMessage` 回宿主，宿主 `router.history.back()`）。按钮的绑定**刻意写在 `index.html` 里**而不是 `exh.js`：3D 初始化失败时它是唯一出口 |
+| 退出方式 | 手机版靠系统返回键；桌面端在**顶部居中**加常驻「← 返回」按钮，`Esc` 同效（`postMessage` 回宿主，宿主 `router.history.back()`）。按钮的绑定**刻意写在 `index.html` 里**而不是 `exh.js`：3D 初始化失败时它是唯一出口。宿主侧还有第二道保险 —— 6 秒内没收到 `onReady` 就在路由层浮一个返回按钮（防止页面整体加载失败时被困在黑屏里） |
 | `BLUR_NSFW` 跟随设置 | 手机版是常量 `true`；桌面端由宿主通过 `window.__YH_BLUR_NSFW` 传入 `blur_nsfw_game_covers`，缺省仍打码 |
 | 「常玩引擎」显示 `—` | 桌面端不记录引擎（手机版有 `engine` 列），全是「未知」时不假装统计 |
 
