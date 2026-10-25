@@ -4,6 +4,8 @@
  * 约定：**一律带 Ctrl/Cmd + Shift**，避免与输入框、浏览器默认行为打架
  * （缩放是 Ctrl+±/0，单独占用一套）。`key` 用 `event.key` 的小写形式比较。
  */
+import { EXHIBITION_PATH } from "../exhibition/constants";
+
 export type GlobalShortcut = {
   /** 稳定标识，同时用作 i18n 键的一部分 */
   id: string;
@@ -31,6 +33,8 @@ export const GLOBAL_SHORTCUTS: GlobalShortcut[] = [
   { id: "downloads", key: "d", path: "/downloads" },
   { id: "settings", key: "p", path: "/settings" },
   { id: "bigscreen", key: "b", path: "/bigscreen" },
+  // 展厅与其余一级页面同等：侧栏图标在收起态只有图形，给它配一个直达键
+  { id: "exhibition", key: "e", path: EXHIBITION_PATH },
   // 不导航，只弹速查表；放在最后，速查弹窗里也列出来
   { id: "cheatsheet", key: "/", code: "Slash" },
 ];

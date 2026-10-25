@@ -4,6 +4,17 @@
 > 在线多人展厅未开始。对应手机版 `app/src/main/assets/exhibition/` 与
 > `com/yuki/yukihub/exhibition/ExhibitionActivity.java`、`ExhibitionBridge.java`。
 
+## 〇、怎么进入
+
+三个入口，都指向 `/exhibition`（同窗口的无外壳全屏路由）：
+
+1. 左侧栏的「展厅」图标（`i-mdi-view-gallery`）—— 侧栏收起时靠 hover 提示认它；
+2. 标题栏右上角、窗口按钮左边那个画廊图标（挨着「大屏」入口）——
+   侧栏收起时也能一眼找到；
+3. `Ctrl + Shift + E`（全局快捷键，速查表里也列了这一条）。
+
+离场：页面内顶部居中的「← 返回」、`Esc`（无浮层时）、或直接按上面的快捷键去别处。
+
 ## 一、为什么是「同源 iframe」而不是重画一遍
 
 手机版展厅是一整套 three.js 页面（约 7000 行 JS：`exh.js` 场景与操作、`hall.js` 书架陈列、

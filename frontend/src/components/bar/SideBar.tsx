@@ -228,6 +228,7 @@ export function SideBar({ bgEnabled = false, bgOpacity = 0.85 }: SideBarProps) {
             <li key={item.to}>
               <Link
                 to={item.to}
+                title={item.label}
                 className={`${navItemClass} select-none`}
                 onDragStart={e => e.preventDefault()}
               >
