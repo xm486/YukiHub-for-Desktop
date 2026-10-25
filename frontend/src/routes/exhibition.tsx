@@ -1,5 +1,5 @@
 import { createRoute, useRouter } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 import { useTranslation } from "react-i18next";
 import { GetLibraryJSON } from "../../bindings/yukihub/internal/service/exhibitionservice";
@@ -73,6 +73,30 @@ function ExhibitionPage() {
   // 页面自己调 onReady 才算真的起来了；没起来就由 React 侧兜底给一个退出口
   const [pageReady, setPageReady] = useState(false);
   const [readyTimedOut, setReadyTimedOut] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  /**
+   * 把键盘焦点交给展厅页面。
+   *
+   * 这个 iframe 里的 WASD / Space / Shift / Esc 全靠它自己文档上的 keydown 监听，
+   * 而 iframe 的文档**不会**自动获得焦点 —— 从侧栏点进来时焦点仍在宿主文档上，
+   * 表现就是「画面全屏了，但按键一点反应都没有，先用鼠标点一下画面才行」。
+   * 同源 iframe 允许父页面把焦点推进去，加载完成即做，省掉那一步莫名的点击。
+   */
+  const focusHall = useCallback(() => {
+    const frame = iframeRef.current;
+    if (!frame) {
+      return;
+    }
+    try {
+      frame.contentWindow?.focus();
+    }
+    catch {
+      // 极端情况下（内核拒绝跨文档聚焦）退回浏览器默认行为：
+      // 用户点一下画面同样能把焦点带进去
+    }
+    frame.focus();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,10 +252,15 @@ function ExhibitionPage() {
       */}
       {/* eslint-disable-next-line react-dom/no-missing-iframe-sandbox */}
       <iframe
+        ref={iframeRef}
         src={HALL_PAGE_PATH}
         title={t("exhibition.title")}
         // 只放行自动播放、全屏与手柄（gamepad.js 会用 navigator.getGamepads）
         allow="autoplay; fullscreen; gamepad"
+        // tabIndex + onLoad 里的 focusHall：见 focusHall 的注释，
+        // 不主动交焦点的话键盘映射等于没生效
+        tabIndex={0}
+        onLoad={focusHall}
         className="h-full w-full border-0"
       />
     </div>

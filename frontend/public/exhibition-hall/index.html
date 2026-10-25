@@ -447,19 +447,32 @@
   返回按钮：故意写在这里而不是 exh.js 里。
   exh.js 启动失败（WebGL 初始化异常、脚本报错）时页面只剩错误覆盖层，
   这时它是唯一能退出去的入口；挂在 3D 引擎的初始化流程里就一起没了。
-  Esc 的等价行为仍在 exh.js（那边要先判断设置面板是否开着）。
+  Esc 的常规行为在 exh.js（那边要先按层级关浮层），这里只做**兜底**：
+  用 window.__exhKeysBound 判断那边到底挂上监听没有，否则一次按键退两层。
 -->
 <script>
     (function () {
-        var btn = document.getElementById('btn-exit');
-        if (!btn) return;
-        btn.addEventListener('click', function (e) {
-            e.preventDefault();
+        function exit() {
             try {
                 if (window.parent && window.parent !== window) {
                     window.parent.postMessage({ type: 'yukihub-exhibition-exit' }, '*');
                 }
             } catch (err) { /* 宿主不可达时无计可施 */ }
+        }
+
+        var btn = document.getElementById('btn-exit');
+        if (btn) {
+            btn.addEventListener('click', function (e) {
+                e.preventDefault();
+                exit();
+            });
+        }
+
+        window.addEventListener('keydown', function (e) {
+            if (e.code !== 'Escape') return;
+            if (window.__exhKeysBound) return;   // exh.js 在管，别重复响应
+            e.preventDefault();
+            exit();
         });
     })();
 </script>

@@ -658,12 +658,22 @@ function bindInput() {
     window.addEventListener('keydown', (e) => {
         if (e.repeat) return;
         if (e.code === 'Escape') {
-            if (settingsOpen()) {
-                e.preventDefault(); setSettingsOpen(false); dom.btnSettings.focus(); return;
-            }
-            // 设置没开时 Esc 一律当作「返回游戏库」：桌面端没有系统返回键，
-            // 这是最符合直觉的退出口。一次按键只做一件事。
             e.preventDefault();
+            // Esc = 「退一层」，从最上层开始，与手柄 B 键（applyPadActions 的
+            // cancel 分支）同一个顺序：设置 → 曲目浮层 → 播放队列 → 选品浮层
+            // → 详情卡 → 退出展厅。
+            //
+            // 桌面端没有系统返回键，Esc 是唯一符合直觉的层级退出键。早先
+            // 只在「设置开着」时才拦一下，其余情况直接退出整个展厅 ——
+            // 选品浮层开着按 Esc 会把人赶回游戏库，摆到一半的陈列全丢。
+            if (settingsOpen()) {
+                setSettingsOpen(false);
+                // 桌面端这个按钮是 hidden 的（设置入口只给手机），
+                // 对隐藏元素 focus() 无效但也不会报错，这里显式判一下更清楚
+                if (dom.btnSettings && !dom.btnSettings.hidden) dom.btnSettings.focus();
+                return;
+            }
+            if (closeTopOverlay()) return;
             requestExit();
             return;
         }
@@ -758,6 +768,42 @@ function bindInput() {
     // --- 尺寸/旋转变化
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', () => setTimeout(onResize, 220));
+
+    // 告诉 index.html 里的兜底脚本「Esc 已经有人管了」。
+    // 那边的监听只在 3D 初始化失败（本函数没跑到）时才生效，避免一次按键退两层。
+    window.__exhKeysBound = true;
+}
+
+/**
+ * 关掉最上层的一个浮层，关掉了返回 true。
+ *
+ * 曲目浮层 / 播放队列是 music.js 自己建的 DOM（`#music-overlay` / `#music-queue`，
+ * 用 hidden 属性控制显隐），它没有暴露 isOpen，所以这里直接看 DOM。
+ */
+function closeTopOverlay() {
+    const albumOverlay = document.getElementById('music-overlay');
+    if (music && albumOverlay && !albumOverlay.hidden) {
+        music.closeOverlay();
+        return true;
+    }
+    const queueDrawer = document.getElementById('music-queue');
+    if (music && queueDrawer && !queueDrawer.hidden) {
+        music.closeQueue();
+        return true;
+    }
+    if (picker && picker.isOpen()) {
+        picker.closePicker();
+        return true;
+    }
+    if (detailOpen()) {
+        // 详情卡是 hall 自己的 DOM（#detail），关闭逻辑也只在那儿 —— 外面没有
+        // 同名的 closeDetail()。早先这里（以及手柄的 A/B 分支）直接裸调
+        // closeDetail()，实际是 ReferenceError：卡片关不掉，而且异常把整个
+        // keydown 监听器打断，连「再按一次退出」都失效。
+        if (hall) hall.closeDetail();
+        return true;
+    }
+    return false;
 }
 
 function clampPitch() {
@@ -1223,7 +1269,7 @@ function applyPadActions(pad) {
             // 为保证行为可预期，A 在浮层里等同于"关闭浮层"，避免误选。
             picker.closePicker();
         } else if (detailOpen()) {
-            closeDetail();
+            if (hall) hall.closeDetail();
         } else {
             // 对屏幕中心做一次射线（十字准星交互），命中什么就交给 handleTap 同款逻辑
             doCenterInteract();
@@ -1233,7 +1279,7 @@ function applyPadActions(pad) {
     // ---- B：取消 / 关闭 ----
     if (pad.act.cancel) {
         if (picker && picker.isOpen()) picker.closePicker();
-        else if (detailOpen()) closeDetail();
+        else if (detailOpen() && hall) hall.closeDetail();
     }
 
     // ---- X：更换展品（等价于点悬浮按钮）----
