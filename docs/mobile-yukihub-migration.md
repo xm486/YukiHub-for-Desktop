@@ -193,10 +193,13 @@ Android 侧的 `root_uri` 可能是 `content://` 形式（SAF 树 URI），需�
 | --- | --- |
 | 总游玩时长 | **取最大值**，不做覆盖。防止较短时长覆盖较长时长 |
 | 游戏标题 | 以"有云端元数据的一侧"为准，避免被本地扫描生成的目录名覆盖 |
-| 游玩记录 | 以 `session_uuid` 为幂等键，重复导入不产生重复会话 |
+| 游玩记录 | 以 `session_uuid`（= 桌面端 `play_sessions.id`）为幂等键，**UPSERT**，重复导入不产生重复会话 |
+| 字段级门槛 | `applyDetails = 对端 updated_at ≥ 本地 updated_at`；对端更旧时只补**缺失的身份键**，不动任何字段 |
 | 时长重算 | 只增不减（重置清零除外） |
-| 清零语义 | `playtime_reset_at` 之前的历史会话不计入统计，但记录本身保留 |
+| 清零语义 | `playtime_reset_at` 之前的历史会话不计入统计，但记录本身保留（手机版是删行，见 §五·⑧） |
 | 隐藏标记 | 快照**带了** `hidden` 才覆盖（`true` / `false` 都算明确表态）；**缺键 = 保留本地**。手机版是 `optBoolean("hidden", 本地值)`，详见 §二 games 元素 |
+| 元数据缓存 | 每次同步都导 `metadata_cache`（手机版 `SyncManager.java:388` 无条件调用） |
+| 标签 | 同步时照抄 `tags`（手机版 `importGamesJson` 的 `optString("tags", 本地值)`） |
 | 冲突方向 | 由同一套算法裁决，不允许两端各有一份实现 |
 
 ### 现状核对（2026-09-28，导入侧合并已落地后更新）
@@ -244,6 +247,54 @@ Android 侧的 `root_uri` 可能是 `content://` 形式（SAF 树 URI），需�
 测试：`TestYukiHubSyncMergeAppliesNewerFieldsOnly`。
 `.ykbak` 手动导入仍是用户在下拉里自选的 `skip` / `merge_sessions` / `merge`，
 不受影响。
+
+**①.2 2026-10-25 逐条重审（对着手机版源码逐函数核对）**
+
+上面那句「两个守卫同时成立才写」当时只有守卫 2（文本非空）落地了，**守卫 1 缺失**。
+这一轮把手机版 `importGamesJson` / `importPlaySessionsJson` / `importMetadataJson`
+逐行过了一遍，补齐四处：
+
+1. **整块字段更新补上时间门槛**（最严重）。
+   早先只有 `status` / `aliases` 两条语句带 `updated_at_ms >= epoch_ms(updated_at)`，
+   name / cover / company / summary / rating / release_date / source / nsfw /
+   legacy_local_id / source_device_id / playtime_reset_at / hidden 那一大条
+   `UPDATE ... FROM` **没有时间守卫**，而且会把 `updated_at` 直接写成对端的旧值。
+   后果：本地刚改过、还没上传的字段被服务器上的旧快照整块覆盖；`updated_at`
+   被写回旧值后，之后每次比较都判反（本地要等时钟超过那个旧值才能再被更新）。
+   现在门槛挂在 `applyDetailsGuard` 上，**只对 `sync_merge` 生效** ——
+   文件导入（`update_existing`）不能套这条，用户主动选文件导入就是要照抄。
+   测试：`persistence_sync_guard_test.go`（旧快照不覆盖 / 新快照照常覆盖 /
+   `updated_at` 相等也算更新〔手机版是 `>=`〕/ 文件导入不受影响），
+   负向验证：去掉守卫后三条断言全红（含 `updated_at` 被回退 2 小时）。
+2. **旧快照仍补缺失的身份键**（手机版 `:706-713` 的 else 分支）。
+   `legacy_local_id` / `source_device_id` 各一条独立语句，本地为空且对端非空才写。
+   测试：`TestOlderSnapshotStillFillsMissingIdentityFields`。
+3. **同步现在会导入 `metadata_cache` 与 `tags`**。
+   手机版 `SyncManager.java:388` 每次同步都调 `importMetadataJson`，
+   `importGamesJson` 也照抄 `tags`；桌面端原先 `commitItemsWithMetadata`
+   把 `sync_merge` 一起排除了。后果不是报错而是**静默丢数据**：桌面端 `games`
+   段里的 company / rating / release_date 是内存解析出来的（看着对），
+   但 `game_metadata_sources` 一行都没有 —— 桌面端再导出时 `metadata_cache`
+   是空数组，元数据链条在「只剩一台桌面端」时就此断掉。
+   注意**封面下载不跟着同步跑**：`downloadAndUpdateCoverImage` 在
+   `cover_source_url` 与对端 URL 相同时仍会重下，而同步是周期性的，
+   跟着跑等于每隔一会儿把整库封面重下一遍。所以封面处理走单独的
+   `commitItemsForCoverProcessing`（再排除 `sync_merge`）。
+   测试：`TestSyncMergeImportsMetadataCacheAndTags`（含重复同步幂等）、
+   `TestCoverDownloadsOnlyRunForFileImports`；两条都做了负向验证。
+4. **会话写入改按主键 UPSERT**（见本文件 §五·③）。
+
+**仍然刻意与手机版不同的地方（不是遗漏，是取舍）**
+
+| 项 | 手机版 | 桌面端 | 理由 |
+| --- | --- | --- | --- |
+| `playtime_reset_at` 前进时 | **删掉**清零点之前的会话行 | 保留行，统计与导出时过滤 | 可观察结果一致；桌面端总时长由会话求和，且聚合补偿会话的时间戳是合成的（可能早于清零点），删行/过滤会直接丢时长（万级规模测试实测少 502 条） |
+| 会话缺 `end_time`（对端正在玩） | 落库为 NULL | 补成 `start + duration` | 桌面端用 `end_time IS NULL` 判定「**本机**正在玩」；照抄 NULL 会让 PC 显示「正在玩」手机上的游戏 |
+| `favorite` | `optBoolean` 双向覆盖 | 只加不减 | 快照里的 `false` 分不清「明确取消」与「本轮未同步」，删收藏是破坏性操作 |
+| `is_nsfw` | 照抄对端 | 只在权威来源名单内采信 | 桌面端部分来源的 NSFW 标记是推测值，采信会误标 |
+| 游戏标题 | **无视时间戳**永远以对端为准 | 受时间门槛约束 | 手机版的理由（防目录名覆盖正式标题）在桌面端同样成立，但「拿旧快照把用户改过的名字改回去」代价更高，取保守 |
+| 会话导出条数 | 全量 | 每游戏最新 30 条 | 桌面端放宽后的总时长依赖聚合补偿；限条数只为控制快照体积 |
+| 总时长存储 | `games.total_play_time` 列 + `recalculatePlayStats` | 无该列，每次由会话聚合 | 桌面端不需要冗余列；「取最大值」由聚合补偿实现 |
 
 **② 标题匹配与预览/导入不一致——已修复**
 

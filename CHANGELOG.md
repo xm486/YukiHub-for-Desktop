@@ -159,6 +159,21 @@
 
 ### 修复（选）
 
+- **云同步会用旧快照覆盖本地新编辑，并把 `updated_at` 写回旧值**。手机版
+  `importGamesJson` 有一道 `applyDetails = 对端 updated_at ≥ 本地` 的门槛
+  （`GameRepository.java:682`），对端更旧时只补缺失的身份键、不动任何字段；
+  桌面端只有 `status` / `aliases` 两条语句带了时间守卫，name / cover / company /
+  summary / rating / release_date / 来源 / nsfw / 隐藏 那一大条 `UPDATE ... FROM`
+  完全没有门槛，还把 `updated_at` 直接写成对端的旧值 —— 于是「本地刚改过、还没
+  上传」的数据被整块覆盖，而且此后每次比较都判反（要等时钟超过那个旧值才能再同步）。
+  现在门槛只对 `sync_merge` 生效（文件导入要照抄文件，不能挡），并补上手机版
+  「旧快照仍补缺失身份键」的分支
+- **云同步从不导入 `metadata_cache` 与 `tags`**。手机版每次同步都执行
+  `importMetadataJson`（`SyncManager.java:388`），`importGamesJson` 也照抄 `tags`；
+  桌面端把 `sync_merge` 从元数据步骤里排除了。后果是静默丢数据：`games` 段里的
+  company / rating 是内存解析的（看着对），但 `game_metadata_sources` 一行都没有，
+  桌面端再导出时 `metadata_cache` 是空数组，元数据链条在只剩一台桌面端时断掉。
+  封面下载**不**跟着同步跑（周期性重下整库封面没有意义），走单独的一条通路
 - **云同步 / WebDAV 同步直接失败**：`导入快照失败: insert imported sessions from staging:
   Constraint Error: Duplicate key "id: ..." violates primary key constraint.`
   快照里的 `session_uuid` 就是本地 `play_sessions.id`，但写入前只按

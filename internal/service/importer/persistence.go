@@ -543,13 +543,37 @@ func splitCommitItemsByAction(items []CommitItem) (createItems, updateItems, syn
 	return createItems, updateItems, syncItems
 }
 
-// commitItemsWithMetadata 过滤掉「只并会话」的动作：它们不去写
-// game_metadata_sources / tags / favorites，避免同步把桌面端自己的元数据来源
-// 覆盖掉。
+// commitItemsWithMetadata 过滤掉「只并会话」的动作：merge_sessions 的语义就是
+// 「只把对端会话并进来，不碰游戏记录」，所以不去写 game_metadata_sources / tags。
+//
+// **sync_merge 不能被这条过滤掉**：手机版 SyncManager 每次同步都会调用
+// `metaRepo.importMetadataJson(root.optJSONArray("metadata_cache"))`
+// （SyncManager.java:388），且 importGamesJson 会照抄 `tags`。
+// 早先这里把 sync_merge 一起排除了，后果是「手机刮削、桌面同步」永远传不过来：
+// 桌面端 games 段里的 company / rating / release_date 是从内存里解析出来的，
+// 看着是对的，但 game_metadata_sources 一行都没有 —— 于是桌面端再导出时
+// metadata_cache 是空数组，元数据链条在「只剩一台桌面端」时就此断掉。
 func commitItemsWithMetadata(items []CommitItem) []CommitItem {
 	filtered := make([]CommitItem, 0, len(items))
 	for _, item := range items {
-		if item.Action != ImportActionMergeSessions && item.Action != ImportActionSyncMerge {
+		if item.Action != ImportActionMergeSessions {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+// commitItemsForCoverProcessing 在上一层的基线上再排除 sync_merge。
+//
+// 封面下载是「用户主动导入了一个文件」才该做的事：后台同步会周期性运行，
+// 而 downloadAndUpdateCoverImage 在 cover_source_url 与对端 URL 相同时
+// 仍会重新下载（isCurrentCoverSource 直接返回 true），跟着同步一起跑等于
+// 每隔一会儿就把整个库的封面重下一遍。手机版也只是把 cover_uri 抄过来，
+// 不下载任何东西。
+func commitItemsForCoverProcessing(metadataItems []CommitItem) []CommitItem {
+	filtered := make([]CommitItem, 0, len(metadataItems))
+	for _, item := range metadataItems {
+		if item.Action != ImportActionSyncMerge {
 			filtered = append(filtered, item)
 		}
 	}
@@ -837,7 +861,7 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 		FROM temp_update_import_games
 		WHERE games.id = temp_update_import_games.id
 		  AND TRIM(COALESCE(temp_update_import_games.status, '')) <> ''
-		  AND temp_update_import_games.updated_at_ms >= epoch_ms(games.updated_at)
+		  AND temp_update_import_games.updated_at_ms >= COALESCE(epoch_ms(games.updated_at), 0)
 	`); err != nil {
 		return inserted, fmt.Errorf("update imported game status: %w", err)
 	}
@@ -848,7 +872,7 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 		FROM temp_update_import_games
 		WHERE games.id = temp_update_import_games.id
 		  AND COALESCE(temp_update_import_games.aliases, '') NOT IN ('', '[]')
-		  AND temp_update_import_games.updated_at_ms >= epoch_ms(games.updated_at)
+		  AND temp_update_import_games.updated_at_ms >= COALESCE(epoch_ms(games.updated_at), 0)
 	`); err != nil {
 		return inserted, fmt.Errorf("update imported game aliases: %w", err)
 	}
@@ -895,6 +919,19 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 			THEN temp_update_import_games.playtime_reset_at
 			ELSE games.playtime_reset_at
 		END`
+	}
+
+	// 「对端是否更新」的整块守卫：**只对 sync_merge 生效**。
+	//
+	// 手机版 importGamesJson 里 `applyDetails = !exists || incomingUpdatedAt >= existingUpdatedAt`
+	// （GameRepository.java:682），对端更旧时只补缺失的身份键、不动任何字段。
+	// 文件导入（update_existing：PotatoVN / Playnite / LunaBox …）不能套这条 ——
+	// 那是用户主动选了一个文件来导入，「照抄文件里的资料」本身就是意图，
+	// 用本地修改时间把它挡住会变成「导入没反应」。
+	applyDetailsGuard := ""
+	if syncSafe {
+		applyDetailsGuard = `
+		  AND temp_update_import_games.updated_at_ms >= COALESCE(epoch_ms(games.updated_at), 0)`
 	}
 
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`
@@ -944,7 +981,7 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 				ELSE temp_update_import_games.hidden
 			END
 		FROM temp_update_import_games
-		WHERE games.id = temp_update_import_games.id
+		WHERE games.id = temp_update_import_games.id%s
 	`,
 		textOr("name"),
 		textOr("company"),
@@ -956,8 +993,36 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 		sourceExpr("source_id"),
 		nsfwSourcePlaceholders,
 		resetExpr,
+		applyDetailsGuard,
 	), nsfwSourceArgs...); err != nil {
 		return inserted, fmt.Errorf("update imported game metadata from staging: %w", err)
+	}
+
+	// 身份键与「谁更新」无关：手机版在「对端更旧」的分支里仍然会把本地缺失的
+	// root_uri / gamehub_local_game_id 补上（GameRepository.java:706-713），
+	// 桌面端对应的是 legacy_local_id / source_device_id。
+	// 单独两条语句、不放进上面那条 UPDATE，是因为同一条 `UPDATE ... FROM` 里对
+	// 目标列做 CASE 自引用容易读到已更新的值（见上方 status 那段注释）。
+	if _, err := conn.ExecContext(ctx, `
+		UPDATE games
+		SET legacy_local_id = temp_update_import_games.legacy_local_id
+		FROM temp_update_import_games
+		WHERE games.id = temp_update_import_games.id
+		  AND TRIM(COALESCE(games.legacy_local_id, '')) = ''
+		  AND TRIM(COALESCE(temp_update_import_games.legacy_local_id, '')) <> ''
+	`); err != nil {
+		return inserted, fmt.Errorf("fill imported game legacy local id: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, `
+		UPDATE games
+		SET source_device_id = temp_update_import_games.source_device_id
+		FROM temp_update_import_games
+		WHERE games.id = temp_update_import_games.id
+		  AND TRIM(COALESCE(games.source_device_id, '')) = ''
+		  AND TRIM(COALESCE(temp_update_import_games.source_device_id, '')) <> ''
+	`); err != nil {
+		return inserted, fmt.Errorf("fill imported game source device id: %w", err)
 	}
 
 	return inserted, nil
@@ -1302,6 +1367,15 @@ func (c *Committer) addImportedItemFavorites(ctx context.Context, conn *sql.Conn
 }
 
 func (c *Committer) addImportedItemSessions(ctx context.Context, conn *sql.Conn, items []CommitItem) (int, error) {
+	// 注意：这里**故意不**按 `playtime_reset_at` 过滤（手机版 importPlaySessionsJson:789
+	// 会 `sessionTime < playtimeResetAt ⇒ continue`）。两端可观察结果一致，但桌面端
+	// 必须把行留下：
+	//   * 桌面端没有 games.total_play_time 列，总时长由会话求和得出；
+	//   * 当快照只带聚合总时长、没有明细时，convertYukiHubSessions 会补一条
+	//     「聚合补偿会话」，它的时间戳是合成的（earliestStart / lastPlayedAt /
+	//     createdAt 依次兜底），完全可能早于清零点 —— 按清零点过滤会把这条
+	//     补偿会话丢掉，直接导致总时长缩水（万级规模测试实测少 502 条 / 502 秒量级）。
+	// 统计与导出两侧都已按清零点过滤，所以留下的行既不计入时长、也不会回传给对端。
 	total := 0
 	for _, item := range items {
 		total += len(item.Sessions)
@@ -1568,6 +1642,7 @@ func (c *Committer) CommitItems(items []CommitItem) (int, int, error) {
 
 	createItems, updateItems, syncItems := splitCommitItemsByAction(items)
 	metadataItems := commitItemsWithMetadata(items)
+	coverItems := commitItemsForCoverProcessing(metadataItems)
 
 	stepStartedAt := time.Now()
 	insertedGames, err := c.addImportedItems(c.ctx, conn, createItems)
@@ -1643,7 +1718,7 @@ func (c *Committer) CommitItems(items []CommitItem) (int, int, error) {
 		applog.LogInfof(c.ctx, "commitImportedItems: checkpoint completed total=%s", time.Since(startedAt))
 	}
 
-	c.startImportCoverProcessing(metadataItems)
+	c.startImportCoverProcessing(coverItems)
 	// 计数必须逐类相加：create / update_existing / sync_merge 三类各自返回写入
 	// 行数，merge_sessions 不在上面任何一类里（只并会话），单独数一遍。
 	// 早先用的是 `len(items) - len(metadataItems)` 兜住 merge_sessions，加入
