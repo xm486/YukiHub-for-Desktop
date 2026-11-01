@@ -50,6 +50,7 @@ func InitSchema(db *sql.DB) error {
 			is_nsfw BOOLEAN DEFAULT FALSE,
 			metadata_locked BOOLEAN DEFAULT FALSE,
 			legacy_local_id TEXT DEFAULT '',
+			legacy_root_uri TEXT DEFAULT '',
 			source_device_id TEXT DEFAULT '',
 			playtime_reset_at TIMESTAMPTZ,
 			hidden BOOLEAN DEFAULT FALSE,

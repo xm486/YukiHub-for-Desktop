@@ -869,3 +869,49 @@ func TestMigration181AddsGameArtColumns(t *testing.T) {
 		t.Fatalf("unexpected art column defaults: logo=%q bg=%q", logoPath, bgPath)
 	}
 }
+
+// migration182 新增 legacy_root_uri（跨端身份键）。老库升级后该列必须存在且为空串，
+// 不能把已有的 path / game_directory 搬过去 —— 那是 Windows 本机路径，不是对端的 root_uri。
+func TestMigration182AddsLegacyRootUri(t *testing.T) {
+	db, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+
+	if _, err := db.Exec(`
+		CREATE TABLE games (id TEXT PRIMARY KEY, path TEXT DEFAULT '');
+		INSERT INTO games (id, path) VALUES ('existing', 'D:/Games/one/game.exe');
+	`); err != nil {
+		t.Fatalf("create migration fixtures: %v", err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin migration transaction: %v", err)
+	}
+	if err := migration182(tx); err != nil {
+		tx.Rollback()
+		t.Fatalf("run migration182: %v", err)
+	}
+	// 幂等
+	if err := migration182(tx); err != nil {
+		tx.Rollback()
+		t.Fatalf("run migration182 a second time: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit migration182: %v", err)
+	}
+
+	var rootURI, path string
+	if err := db.QueryRow(`SELECT COALESCE(legacy_root_uri, ''), path FROM games WHERE id = 'existing'`).Scan(&rootURI, &path); err != nil {
+		t.Fatalf("query migrated column: %v", err)
+	}
+	if rootURI != "" {
+		t.Fatalf("legacy_root_uri 默认应为空串（不得用本机 path 填充），实际 %q", rootURI)
+	}
+	if path != `D:/Games/one/game.exe` {
+		t.Fatalf("原有 path 不该被改动，实际 %q", path)
+	}
+}

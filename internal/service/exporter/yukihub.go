@@ -240,6 +240,7 @@ func (e *YukiHubExporter) loadGames() ([]models.Game, error) {
 		COALESCE(g.created_at, CURRENT_TIMESTAMP) as created_at,
 		COALESCE(g.updated_at, g.created_at, CURRENT_TIMESTAMP) as updated_at,
 		COALESCE(g.legacy_local_id, '') as legacy_local_id,
+		COALESCE(g.legacy_root_uri, '') as legacy_root_uri,
 		g.playtime_reset_at,
 		COALESCE(g.hidden, FALSE) as hidden
 	FROM games g
@@ -272,6 +273,7 @@ func (e *YukiHubExporter) loadGames() ([]models.Game, error) {
 			&game.CreatedAt,
 			&game.UpdatedAt,
 			&game.LegacyLocalID,
+			&game.LegacyRootURI,
 			&playtimeResetAt,
 			&game.Hidden,
 		); err != nil {
@@ -456,16 +458,19 @@ func buildYukiHubGame(game models.Game, tags []string, sessions []models.PlaySes
 		Title:         game.Name,
 		OriginalTitle: firstYukiHubAlias(game.Aliases),
 		Engine:        "", // Android 专用（引擎类型），桌面端不存储
-		// RootUri 恒为空串，不导出 Windows 绝对路径。原因：
-		// 1) 这些路径在 Android 上不可达，写过去只会让对端存一堆无意义的 D:\... ；
-		// 2) 与 importer 方向对称——桌面端导入 Android 备份时同样不把对端的
-		//    root_uri 写进桌面端 path/game_directory；
-		// 3) 契约已明确「两侧规范化后的路径字符串不等价，跨端匹配以标题为主」。
-		// 空 root_uri 时 Android 会走 findByTitleForEmptyRoot 按标题匹配。
-		// TODO(round-trip)：Android 源生的条目（其本地 root_uri 非空）经桌面端
-		// 回导时仍可能在对端产生重复。要彻底解决需新增 legacy_root_uri 列保存
-		// 对端原始路径并在导出时回填，见 ROADMAP 阶段 2。
-		RootUri: "",
+		// RootUri 回写「对端原始 root_uri」，**不是**桌面端本机路径。
+		//
+		// 对手机来说这是第一档身份键（GameRepository.findBySyncIdentity:840
+		// 先 findByRootUri，再 gamehub id，最后才是「本地 root_uri 为空时按标题」）。
+		// 早先这里恒写空串，理由是「不导出 D:\ 路径」——理由本身没错，但漏了
+		// 另一面：手机端游戏几乎都有非空 root_uri（扫描目录），标题兜底又只对
+		// 「本地 root_uri 为空」的行生效，于是三档全落空 ⇒ 每条游戏都被当成新游戏
+		// INSERT ⇒ 用户实测「电脑同步完，手机里图标全变双份」。
+		//
+		// 现在 games.legacy_root_uri 保存的是**导入时从快照带过来的原值**，
+		// 原样回写即可命中。桌面端自己扫描的游戏该列为空 → 仍然写空串，
+		// 依旧不会把 Windows 路径发出去（对端会按标题认领，那是新建而非重复）。
+		RootUri: strings.TrimSpace(game.LegacyRootURI),
 		// 优先用元数据来源的原始网络地址：本地封面可能只是桌面端的缓存文件，
 		// 对端拿不到；两者都不是 http(s) 时留空（omitempty 会省略该字段），
 		// 手机端便会保留自己已有的封面。

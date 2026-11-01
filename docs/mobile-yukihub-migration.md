@@ -164,26 +164,32 @@ Android 版用自增整数 `local_id`，桌面端用 UUID。两侧各自新增�
 
 ### 方案
 
-为每个游戏维护一个**稳定身份键**，优先级如下：
+为每个游戏维护一个**稳定身份键**，优先级与手机版
+`GameRepository.findBySyncIdentity`（`:840`）逐档对齐：
 
-1. **规范化后的游戏路径**（Android 侧 `root_uri` ↔ 桌面端 `path`）
-2. Android 侧的 `gamehub_local_game_id`（无本地目录的条目）
-3. **标题精确匹配**（仅在路径为空且唯一匹配时使用，不唯一则视为新条目）
+1. **对端原始路径**（Android 侧 `root_uri` ↔ 桌面端 `games.legacy_root_uri`）
+2. Android 侧的 `gamehub_local_game_id`（无本地目录的条目；桌面端不存该值，
+   这类条目在两侧都退回标题档）
+3. **标题精确匹配**（对端路径为空、且唯一匹配时使用，不唯一则视为新条目）
 
-同时在 `games` 表新增 `legacy_local_id` 与 `source_device_id` 两列：
-前者保留 Android 侧的整数 ID，后者记录条目来源设备，避免多设备互相覆盖。
+`games` 表为此有三列：`legacy_local_id`（Android 整数 ID）、`legacy_root_uri`
+（Android 原始 `root_uri`，2026-11-01 新增）、`source_device_id`（条目来源设备）。
+
+**关键约束：身份键必须原值往返。** `legacy_root_uri` 只保存、不解释 ——
+导入时原样落库，导出时原样回写，绝不写进 `path` / `game_directory`，
+也绝不把本机 Windows 路径当作它发出去。
 
 ### 路径规范化
 
-Android 侧的 `root_uri` 可能是 `content://` 形式（SAF 树 URI），需要：
+Android 侧的 `root_uri` 可能是 `content://` 形式（SAF 树 URI），手机端比较前会：
+去 `file://` 前缀 → `content://` 取 `DocumentsContract` 的 docId → 折叠重复 `/`
+→ 去掉结尾 `/` → 转小写（`normalizeRootUriKey`，`GameRepository.java:1020`）。
 
-1. 去掉 `file://` 前缀
-2. `content://` 取出 `DocumentsContract` 的 docId
-3. 折叠重复的 `/`、去掉结尾 `/`、转为小写
+桌面端复刻同样的字符串归一（`normalizeLegacyRootURI`），但**不做 docId 解析**
+（那需要 Android 运行时）。因为两端保存的是同一个原值，归一后自然相等。
 
-桌面端路径直接使用 Windows 绝对路径。**两侧规范化后的字符串不等价**，
-因此跨端匹配以 `legacy_local_id` 与标题为主，路径匹配仅用于同平台内部。
-这是本设计中最需要谨慎处理的一点。
+桌面端本机路径（`path` / `game_directory`）只用于同平台内部的同名冲突判定，
+不参与跨端身份比较。
 
 ## 五、合并语义
 
@@ -401,11 +407,15 @@ Android 为权威源的状态合并是否要覆盖，待决策。
   而 Android 的 `tail(sessions, 30)` 是**所有游戏合计** 30 条（见 §二）。
   桌面端放宽是因为它的总时长由会话求和得出：少导出会话会让回导后的总时长缩水。
   Android 导入时不校验条数，收到多少收多少，它自己下一次备份时再裁到 30 条。
-- **`root_uri` 恒为空串**，不写 Windows 绝对路径。对端 Android 会走
-  `findByTitleForEmptyRoot` 按标题匹配；这与导入方向对称（桌面端导入 Android 备份时
-  同样不把对端的 `content://` 路径写进 `path` / `game_directory`）。
-  *遗留*：Android 源生条目（本地 `root_uri` 非空）经桌面端回导时仍可能在对端产生重复，
-  彻底解决需新增 `legacy_root_uri` 列保存对端原始路径并在导出时回填。
+- **`root_uri` 回写「对端原始值」**（2026-11-01 修正）。桌面端不写 Windows 绝对路径，
+  但也不能一直写空串 —— 详见 §四「跨端身份键」。取值范围只有两个：
+  `games.legacy_root_uri`（导入时从快照保存的 Android 原值，原样回写）或空串
+  （桌面端自己扫描的游戏）。对端 `content://` 路径不会进 `path` / `game_directory`，
+  这两个字段仍是 Windows 本机路径，两个方向都不交叉污染。
+- **身份键丢失会直接造成整库重复**：手机版 `findBySyncIdentity`（`GameRepository.java:840`）
+  是 `root_uri → gamehub_local_game_id → 标题（且仅当本地 root_uri 为空）` 三档；
+  桌面端只写空串时第三档对「本地 root_uri 非空」的行不生效，三档全落空 ⇒ 手机端
+  `db.insert("games", …)` 各插一条。用户实测反馈见 CHANGELOG「同步一次手机整库翻倍」。
 - 无标题条目（`name` 去掉空白后为空）跳过导出：对端会把空标题落成"未命名游戏"，
   只会制造无法匹配的占位记录。
 - `local_id` 由 `games.legacy_local_id` 还原（保留的 Android 整数 ID），非法或缺失时为 0。
@@ -420,7 +430,9 @@ Android 为权威源的状态合并是否要覆盖，待决策。
   封面分级）只存在于该 JSON 中。
   测试：`TestYukiHubMetadataCacheRoundTrip`。
 - 游玩记录另写入 `launch_type = "external"`、`device_id = "desktop"`，
-  `game_root_uri` 与游戏条目保持一致（空）。
+  `game_root_uri` 与游戏条目的 `root_uri` 保持一致（同样是对端原值，不是本机路径）。
+  手机端 `importPlaySessionsJson` 也是先 `findByRootUri(game_root_uri)`，认不出才降级到
+  标题；这条键丢了，会话会整批挂不上或落到重复条目上。
 
 ### 实机核对结论（2026-09-30，用真实手机版备份）
 
@@ -639,7 +651,7 @@ Bangumi」，而是手机端没有读取 Bangumi 的 `nsfw` 字段。桌面端�
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
 | 会话上限：手机全局 30 / 桌面每游戏 30 | 保留 | 桌面总时长由会话求和，少导会让回导后时长缩水；文档 §五 已说明 |
-| 会话幂等键：手机按 `session_uuid` / 桌面按 `(game_id, start_time, end_time)` | 保留 | 极端情况下同 UUID 不同时间戳会插重复，文档 §四 已记录 |
+| 会话幂等键 | 已修（2026-10-25） | 桌面端改为以主键 `play_sessions.id`（= `session_uuid`）UPSERT，判重键与主键统一，见 §五·③ |
 | `metadata_cache` 中 `source_id` 为空的条目在桌面端被丢弃 | 保留 | 手机端该列可空、桌面端 `NOT NULL`；仅当来源 payload 本身没有 id 时触发，此时缓存无匹配价值 |
 | `duration` 毫秒↔秒换算的取整误差 | 保留 | 单位不同导致的固有误差，非逻辑错误 |
 | `original_title` 经桌面往返只保留第一个别名 | 保留 | 桌面 `aliases` 是数组、手机是单值列 |
@@ -1353,3 +1365,54 @@ exe 冒烟无 FATAL；另外用「产物 CSS + 手搓 DOM + 无头 Edge」出图
 > （`friendsChat.platform.<平台>`），提取器看不到，必须在 `preservePatterns`
 > 里登记。这里用**三个具体键名**而不是 `friendsChat.platform.*` 通配 ——
 > 被 preserve 的集合越小，将来这个前缀下新增的键才照常参与孤儿检测。
+
+## 二十一、2026-11-01 第二十一轮：跨端身份键往返（修「同步一次手机整库翻倍」）
+
+### 21.1 现象与定位
+
+用户反馈：手机端在 PC 上登录账号、跑了一次同步之后，**库里每个图标都变成两份**。
+
+根因不是「同步写了两次」，而是**身份键丢了，手机端认不出这条游戏**：
+
+- 手机版 `GameRepository.findBySyncIdentity`（`:840`）的匹配顺序是
+  `findByRootUri(root_uri)` → `findByGameHubLocalId` → `findByTitleForEmptyRoot(title)`；
+- 第三档的 SQL 带 `IFNULL(root_uri,'')=''` 条件 —— **只对「本地 root_uri 为空」的行生效**；
+- 桌面端 `buildYukiHubGame` 原先把 `root_uri` 恒写空串（为了不泄露 `D:/` 路径），
+  而 Android 扫描进来的游戏几乎都有非空 `root_uri` ⇒ 三档全落空 ⇒
+  `db.insert("games", …)` 各插一条。
+
+代码里原本就有一条 `TODO(round-trip)` 预言了这件事，只是没修。同一条链路上
+`play_sessions.game_root_uri` 也是空串，于是会话同样认不出游戏（`continue` 丢弃，
+或挂到那条重复条目上）。
+
+### 21.2 改法
+
+| 层 | 改动 |
+| --- | --- |
+| schema | 迁移 182：`games.legacy_root_uri TEXT DEFAULT ''`（幂等，IF NOT EXISTS） |
+| 导入 | `convertYukiHubGame` 把 `source.root_uri` 原样存进 `legacy_root_uri`；**不写** `path` / `game_directory` |
+| 导入匹配 | `ImportFromYukiHub` 增加第一档：`normalizeLegacyRootURI(legacy_root_uri)` 命中即视为同一条（对齐手机版），标题档降为第二档 |
+| 合并 | 暂存表加列；整块 UPDATE 里 `CASE WHEN <> '' THEN 对端 ELSE 本地`（空值=「没说」不清空）；另有一条「本地为空且对端非空才填」的语句，对齐手机版 `:706-713` 的 else 分支 |
+| 导出 | `RootUri: strings.TrimSpace(game.LegacyRootURI)`；桌面端自建游戏该列为空 → 仍写空串，不泄露本机路径 |
+
+`legacy_root_uri` 的定位是**只存不解释**：原值往返，绝不参与本机路径逻辑。
+
+### 21.3 老用户能不能自动恢复
+
+能。桌面端已有的行虽然还没有 `legacy_root_uri`，但**只要再导入一次手机上传的快照**
+（云同步本来就会做），值就会被补上，随后导出即可被手机认领。
+若服务器上最后一份快照是桌面端上传的（全是空串），则需要手机端先同步上传一次。
+
+已经产生的重复条目不会自动消失：手机端的重复行 `root_uri` 为空、标题与原件相同，
+下次同步会被桌面端按标题并成一条，但手机本地那两行仍要手动删一条。
+
+### 21.4 验收
+
+- `internal/service/test/yukihub_roundtrip_identity_test.go`（5 条，真 DuckDB）：
+  往返保留 `root_uri`（并用**复刻的手机端匹配算法**断言「认得出、不新建」）、
+  导入落库且不污染本机路径、标题改了仍按 root_uri 合并、空值快照不清空身份键、
+  桌面端自建游戏不泄露 `D:/` 路径。
+- `internal/migrations/migrations_test.go`：`TestMigration182AddsLegacyRootUri`（加列 + 幂等 + 默认空串、不改动已有 `path`）。
+- **负向验证两条**：导出回退成 `RootUri: ""` → 往返两条断言变红
+  （`games[0].root_uri = ""`）；拆掉导入侧的 root_uri 匹配档 →
+  `游戏数 = 2, want 1`。

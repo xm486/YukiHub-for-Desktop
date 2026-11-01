@@ -133,6 +133,11 @@ export class Game {
     "legacy_local_id": string;
 
     /**
+     * 手机版 YukiHub 的 root_uri 原始值（跨端身份键），只回写不参与本机路径逻辑
+     */
+    "legacy_root_uri": string;
+
+    /**
      * 条目来源设备，避免多设备互相覆盖
      */
     "source_device_id": string;
@@ -267,6 +272,9 @@ export class Game {
         }
         if (!("legacy_local_id" in $$source)) {
             this["legacy_local_id"] = "";
+        }
+        if (!("legacy_root_uri" in $$source)) {
+            this["legacy_root_uri"] = "";
         }
         if (!("source_device_id" in $$source)) {
             this["source_device_id"] = "";

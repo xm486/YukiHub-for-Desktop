@@ -948,6 +948,26 @@ func migration181(tx *sql.Tx) error {
 	return nil
 }
 
+// migration182 为 games 增加 legacy_root_uri：保存「对端（Android）原始 root_uri」。
+//
+// 这是跨端身份键，直接决定手机端能不能认出「这条就是我已有的那条游戏」：
+// 手机版 findBySyncIdentity（GameRepository.java:840）的匹配顺序是
+// **root_uri → gamehub_local_game_id → 标题（且仅当本地 root_uri 为空）**。
+// 桌面端导入手机快照时把 root_uri 丢掉了，导出时又只能写空串，于是手机端
+// 三档全落空 → 当成新游戏 INSERT → 一次同步把整库翻倍。
+//
+// 该列**只**承载对端原始值，绝不参与桌面端自己的路径逻辑（path / game_directory
+// 仍是 Windows 本机路径）：导出时原样回写，导入时只读不写 path。
+func migration182(tx *sql.Tx) error {
+	if _, err := tx.Exec(`
+		ALTER TABLE games
+		ADD COLUMN IF NOT EXISTS legacy_root_uri TEXT DEFAULT ''
+	`); err != nil {
+		return fmt.Errorf("failed to add legacy_root_uri column: %w", err)
+	}
+	return nil
+}
+
 // 所有迁移按版本号顺序排列
 var migrations = []Migration{
 	{
@@ -1114,6 +1134,11 @@ var migrations = []Migration{
 		Version:     181,
 		Description: "Add logo_path/bg_path columns to games for big-screen custom title art and background art",
 		Up:          migration181,
+	},
+	{
+		Version:     182,
+		Description: "Add legacy_root_uri column to games so Android round-trip keeps its identity key",
+		Up:          migration182,
 	},
 	// {
 	// 	Version:     114,

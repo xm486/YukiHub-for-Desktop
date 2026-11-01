@@ -37,27 +37,31 @@ type GameRef struct {
 	SourceType enums.SourceType
 	SourceID   string
 	CreatedAt  time.Time
+	// LegacyRootURI 是对端（Android）原始 root_uri，跨端身份匹配的第一档键。
+	LegacyRootURI string
 }
 
 func gameRefFromModel(game models.Game) GameRef {
 	return GameRef{
-		ID:         game.ID,
-		Name:       game.Name,
-		Path:       game.Path,
-		SourceType: game.SourceType,
-		SourceID:   game.SourceID,
-		CreatedAt:  game.CreatedAt,
+		ID:            game.ID,
+		Name:          game.Name,
+		Path:          game.Path,
+		SourceType:    game.SourceType,
+		SourceID:      game.SourceID,
+		CreatedAt:     game.CreatedAt,
+		LegacyRootURI: game.LegacyRootURI,
 	}
 }
 
 func (ref GameRef) game() models.Game {
 	return models.Game{
-		ID:         ref.ID,
-		Name:       ref.Name,
-		Path:       ref.Path,
-		SourceType: ref.SourceType,
-		SourceID:   ref.SourceID,
-		CreatedAt:  ref.CreatedAt,
+		ID:            ref.ID,
+		Name:          ref.Name,
+		Path:          ref.Path,
+		SourceType:    ref.SourceType,
+		SourceID:      ref.SourceID,
+		CreatedAt:     ref.CreatedAt,
+		LegacyRootURI: ref.LegacyRootURI,
 	}
 }
 
@@ -253,7 +257,8 @@ func (c *Committer) listGameRefs() ([]GameRef, error) {
 			COALESCE(g.path, ''),
 			COALESCE(s.source_type, g.source_type, ''),
 			COALESCE(s.source_id, g.source_id, ''),
-			COALESCE(g.created_at, g.cached_at, g.updated_at, CURRENT_TIMESTAMP)
+			COALESCE(g.created_at, g.cached_at, g.updated_at, CURRENT_TIMESTAMP),
+			COALESCE(g.legacy_root_uri, '')
 		FROM games g
 		LEFT JOIN game_metadata_sources s ON s.game_id = g.id
 	`)
@@ -266,7 +271,7 @@ func (c *Committer) listGameRefs() ([]GameRef, error) {
 	for rows.Next() {
 		var ref GameRef
 		var sourceType string
-		if err := rows.Scan(&ref.ID, &ref.Name, &ref.Path, &sourceType, &ref.SourceID, &ref.CreatedAt); err != nil {
+		if err := rows.Scan(&ref.ID, &ref.Name, &ref.Path, &sourceType, &ref.SourceID, &ref.CreatedAt, &ref.LegacyRootURI); err != nil {
 			return nil, fmt.Errorf("scan import game ref: %w", err)
 		}
 		ref.SourceType = enums.SourceType(sourceType)
@@ -294,12 +299,13 @@ func (c *Committer) ListGames() ([]models.Game, error) {
 	games := make([]models.Game, 0, len(refs))
 	for _, ref := range refs {
 		games = append(games, models.Game{
-			ID:         ref.ID,
-			Name:       ref.Name,
-			Path:       ref.Path,
-			SourceType: ref.SourceType,
-			SourceID:   ref.SourceID,
-			CreatedAt:  ref.CreatedAt,
+			ID:            ref.ID,
+			Name:          ref.Name,
+			Path:          ref.Path,
+			SourceType:    ref.SourceType,
+			SourceID:      ref.SourceID,
+			CreatedAt:     ref.CreatedAt,
+			LegacyRootURI: ref.LegacyRootURI,
 		})
 	}
 	return games, nil
@@ -620,6 +626,7 @@ func (c *Committer) addImportedItems(ctx context.Context, conn *sql.Conn, items 
 		use_magpie BOOLEAN,
 		is_nsfw BOOLEAN,
 		legacy_local_id TEXT,
+		legacy_root_uri TEXT,
 		source_device_id TEXT,
 		playtime_reset_at TIMESTAMPTZ,
 		hidden BOOLEAN
@@ -695,6 +702,7 @@ func (c *Committer) addImportedItems(ctx context.Context, conn *sql.Conn, items 
 				game.UseMagpie,
 				game.IsNSFW,
 				game.LegacyLocalID,
+				game.LegacyRootURI,
 				game.SourceDeviceID,
 				nullableTime(game.PlaytimeResetAt),
 				// hidden 三态：快照没带这个键就写 NULL，插入路径用
@@ -715,7 +723,7 @@ func (c *Committer) addImportedItems(ctx context.Context, conn *sql.Conn, items 
 		steam_launch_id, steam_launch_kind, steam_user_id, steam_launch_options,
 		source_type, cached_at, source_id, created_at, updated_at,
 		use_locale_emulator, use_magpie, is_nsfw,
-		legacy_local_id, source_device_id, playtime_reset_at, hidden
+		legacy_local_id, legacy_root_uri, source_device_id, playtime_reset_at, hidden
 	)
 	SELECT
 		id, name, aliases, cover_url, cover_source_url, company, summary, rating, release_date, status, path, game_directory,
@@ -723,7 +731,7 @@ func (c *Committer) addImportedItems(ctx context.Context, conn *sql.Conn, items 
 		steam_launch_id, steam_launch_kind, steam_user_id, steam_launch_options,
 		source_type, cached_at, source_id, created_at, updated_at,
 		use_locale_emulator, use_magpie, is_nsfw,
-		legacy_local_id, source_device_id, playtime_reset_at,
+		legacy_local_id, legacy_root_uri, source_device_id, playtime_reset_at,
 		-- 新建条目没有「保留本地值」可言，没带键就是「不隐藏」
 		COALESCE(hidden, FALSE)
 	FROM temp_import_games`); err != nil {
@@ -777,6 +785,7 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 		updated_at TIMESTAMPTZ,
 		is_nsfw BOOLEAN,
 		legacy_local_id TEXT,
+		legacy_root_uri TEXT,
 		source_device_id TEXT,
 		playtime_reset_at TIMESTAMPTZ,
 		hidden BOOLEAN
@@ -828,6 +837,7 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 				game.UpdatedAt,
 				game.IsNSFW,
 				game.LegacyLocalID,
+				game.LegacyRootURI,
 				game.SourceDeviceID,
 				nullableTime(game.PlaytimeResetAt),
 				// 更新路径必须保留「没带键」这个信息：NULL = 不覆盖本地值。
@@ -967,6 +977,13 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 				WHEN temp_update_import_games.legacy_local_id <> '' THEN temp_update_import_games.legacy_local_id
 				ELSE games.legacy_local_id
 			END,
+			-- 对端原始 root_uri 同样「非空才覆盖」：它是 Android 侧 findBySyncIdentity
+			-- 的第一档身份键，导出时必须原样回写，否则手机端认不出这条游戏、整库翻倍。
+			-- 空值意味着「这张快照没带这条信息」（老快照 / 桌面端自建游戏），保留原值。
+			legacy_root_uri = CASE
+				WHEN temp_update_import_games.legacy_root_uri <> '' THEN temp_update_import_games.legacy_root_uri
+				ELSE games.legacy_root_uri
+			END,
 			source_device_id = CASE
 				WHEN temp_update_import_games.source_device_id <> '' THEN temp_update_import_games.source_device_id
 				ELSE games.source_device_id
@@ -1000,7 +1017,7 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 
 	// 身份键与「谁更新」无关：手机版在「对端更旧」的分支里仍然会把本地缺失的
 	// root_uri / gamehub_local_game_id 补上（GameRepository.java:706-713），
-	// 桌面端对应的是 legacy_local_id / source_device_id。
+	// 桌面端对应的是 legacy_local_id / legacy_root_uri / source_device_id。
 	// 单独两条语句、不放进上面那条 UPDATE，是因为同一条 `UPDATE ... FROM` 里对
 	// 目标列做 CASE 自引用容易读到已更新的值（见上方 status 那段注释）。
 	if _, err := conn.ExecContext(ctx, `
@@ -1012,6 +1029,17 @@ func (c *Committer) applyImportedItemMetadata(ctx context.Context, conn *sql.Con
 		  AND TRIM(COALESCE(temp_update_import_games.legacy_local_id, '')) <> ''
 	`); err != nil {
 		return inserted, fmt.Errorf("fill imported game legacy local id: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, `
+		UPDATE games
+		SET legacy_root_uri = temp_update_import_games.legacy_root_uri
+		FROM temp_update_import_games
+		WHERE games.id = temp_update_import_games.id
+		  AND TRIM(COALESCE(games.legacy_root_uri, '')) = ''
+		  AND TRIM(COALESCE(temp_update_import_games.legacy_root_uri, '')) <> ''
+	`); err != nil {
+		return inserted, fmt.Errorf("fill imported game legacy root uri: %w", err)
 	}
 
 	if _, err := conn.ExecContext(ctx, `

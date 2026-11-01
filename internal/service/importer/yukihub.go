@@ -70,9 +70,13 @@ func (y *YukiHubImporter) Preview(backupPath string) ([]PreviewGame, error) {
 	}
 	existingIndex := newExistingPreviewIndex(existingGames)
 	existingByName := make(map[string]models.Game, len(existingGames))
+	existingByRootURI := make(map[string]models.Game, len(existingGames))
 	for _, game := range existingGames {
 		if key := strings.ToLower(strings.TrimSpace(game.Name)); key != "" {
 			existingByName[key] = game
+		}
+		if key := normalizeLegacyRootURI(game.LegacyRootURI); key != "" {
+			existingByRootURI[key] = game
 		}
 	}
 
@@ -87,7 +91,10 @@ func (y *YukiHubImporter) Preview(backupPath string) ([]PreviewGame, error) {
 		sourceType, sourceID := yukiHubIdentity(primary)
 		conflict := previewConflict(existingIndex, name, "", string(sourceType), sourceID)
 		if conflict.Type == ConflictTypeNone {
-			if existing, ok := existingByName[strings.ToLower(name)]; ok {
+			// 先看对端 root_uri（与 Import 的匹配顺序一致），再看标题兜底。
+			if existing, ok := existingByRootURI[normalizeLegacyRootURI(sourceGame.RootUri)]; ok {
+				conflict = existingGameConflict{Type: ConflictTypeNameAndPath, Game: existing}
+			} else if existing, ok := existingByName[strings.ToLower(name)]; ok {
 				conflict = existingGameConflict{Type: ConflictTypeNameAndPath, Game: existing}
 			}
 		}
@@ -132,6 +139,13 @@ func (y *YukiHubImporter) ImportSelected(backupPath string, skipNoPath bool, sam
 
 	metadataByGame := indexYukiHubMetadata(backup.MetadataCache)
 	sessionsByGame := indexYukiHubSessions(backup.PlaySessions)
+	// 对端 root_uri → 本地游戏 ID：手机版 findBySyncIdentity 的**第一档**键。
+	existingByRootURI := make(map[string]string, len(existingGames))
+	for _, game := range existingGames {
+		if key := normalizeLegacyRootURI(game.LegacyRootURI); key != "" {
+			existingByRootURI[key] = game.ID
+		}
+	}
 	items := make([]ImportItem, 0, len(backup.Games))
 	for _, sourceGame := range backup.Games {
 		gameName := strings.TrimSpace(sourceGame.Title)
@@ -158,7 +172,20 @@ func (y *YukiHubImporter) ImportSelected(backupPath string, skipNoPath bool, sam
 		existingGameID := ""
 		conflict, conflictExists := findExistingGameConflict(existingGames, existingNames, existingPaths, gameName, "")
 		if !conflictExists {
-			// 与 Android 侧 findByTitleForEmptyRoot 对齐：快照条目没有路径，
+			// 第一档：对端 root_uri（手机版 findBySyncIdentity 先查这个）。
+			// 手机端改过标题时，只有这一档还能认出「就是同一条游戏」。
+			if existingID, ok := existingByRootURI[normalizeLegacyRootURI(sourceGame.RootUri)]; ok && existingID != "" {
+				for _, game := range existingGames {
+					if game.ID == existingID {
+						conflict = existingGameConflict{Type: ConflictTypeNameAndPath, Game: game}
+						conflictExists = true
+						break
+					}
+				}
+			}
+		}
+		if !conflictExists {
+			// 第二档：与 Android 侧 findByTitleForEmptyRoot 对齐：快照条目没有路径，
 			// 纯标题命中即视为同一条目（即使桌面端游戏带有本机路径）。
 			// 通用判定的 NameAndPath 分支要求路径相等，会漏掉这种情况并产生重复条目。
 			if existingID, ok := existingNames[strings.ToLower(gameName)]; ok {
@@ -219,6 +246,11 @@ func (y *YukiHubImporter) ImportSelected(backupPath string, skipNoPath bool, sam
 		if action == ImportActionCreate {
 			updateExistingIndexes(existingNames, existingPaths, game, gameName, "")
 			existingGames = append(existingGames, game)
+			// 同一次导入里后面还可能再来一条指向同一个 root_uri 的条目，
+			// 不登记就会在这一轮内自己造出重复。
+			if key := normalizeLegacyRootURI(game.LegacyRootURI); key != "" {
+				existingByRootURI[key] = game.ID
+			}
 		}
 	}
 
@@ -321,6 +353,27 @@ func (index yukiHubSnapshotIndex[T]) lookup(localID int64, title string) []T {
 // 转小写只是为了容忍大小写差异，不会把本来能匹配上的弄丢。
 func normalizeYukiHubTitle(title string) string {
 	return strings.ToLower(strings.TrimSpace(title))
+}
+
+// normalizeLegacyRootURI 是跨端 root_uri 匹配的归一化键，对齐手机版
+// GameRepository.normalizeRootUriKey（:1020）里与字符串比较有关的部分：
+// 去 file:// 前缀、折叠重复斜杠、去尾部斜杠、转小写。
+//
+// 手机端还会把 content:// 解析成 DocumentsContract 的 docId（那段依赖 Android
+// 运行时）。桌面端不做这一步：只要保持**原值往返**，两端算出来的键就是同一个。
+func normalizeLegacyRootURI(rootURI string) string {
+	s := strings.TrimSpace(rootURI)
+	if s == "" {
+		return ""
+	}
+	s = strings.TrimPrefix(s, "file://")
+	for strings.Contains(s, "//") {
+		s = strings.ReplaceAll(s, "//", "/")
+	}
+	for len(s) > 1 && strings.HasSuffix(s, "/") {
+		s = strings.TrimSuffix(s, "/")
+	}
+	return strings.ToLower(s)
 }
 
 func indexYukiHubMetadata(entries []yukihub.MetadataCache) yukiHubSnapshotIndex[parsedYukiHubMetadata] {
@@ -438,6 +491,11 @@ func convertYukiHubGame(
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
 		LegacyLocalID:   yukiHubLocalID(source.LocalID),
+		// 原样保留对端 root_uri：它是手机版 findBySyncIdentity 的**第一档**身份键。
+		// 丢掉它 → 导出时只能写空串 → 手机端三档匹配全落空 → 整库被当成新游戏
+		// 各插一份（用户实测「同步完手机里图标全变双份」）。
+		// 只作为身份键存档，**不**写进 path / game_directory（那是 Windows 本机路径）。
+		LegacyRootURI: strings.TrimSpace(source.RootUri),
 		// Android 备份的 profile 里没有可用的设备标识，保持空值，不编造来源设备。
 		SourceDeviceID:  "",
 		PlaytimeResetAt: playtimeResetAt,

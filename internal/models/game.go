@@ -39,6 +39,7 @@ type Game struct {
 	IsNSFW             bool                 `json:"is_nsfw"`                     // 是否为 NSFW 游戏
 	MetadataLocked     bool                 `json:"metadata_locked"`             // 是否锁定远程元数据更新
 	LegacyLocalID      string               `json:"legacy_local_id"`             // 手机版 YukiHub 的整数 local_id，用于回写与去重，不替代主键
+	LegacyRootURI      string               `json:"legacy_root_uri"`             // 手机版 YukiHub 的 root_uri 原始值（跨端身份键），只回写不参与本机路径逻辑
 	SourceDeviceID     string               `json:"source_device_id"`            // 条目来源设备，避免多设备互相覆盖
 	PlaytimeResetAt    *time.Time           `json:"playtime_reset_at,omitempty"` // 清零时间点：该时间之前的历史会话不计入统计，记录本身保留
 	Hidden             bool                 `json:"hidden"`                      // 手机版 YukiHub 的隐藏标记
